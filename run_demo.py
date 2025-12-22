@@ -9,7 +9,7 @@ def main() -> None:
     S0 = 100.0
     r = 0.02
     q = 0.01
-    divs = {0.5: (0.03, 0.01)}  # 6‑month proportional dividend: mean 3%, std 1%
+    divs = {0.5: (3.0, 0.5)}  # 6‑month cash dividend: mean $3.00, stdev $0.50
 
     # Model parameters
     params_gbm = {"vol": 0.25}

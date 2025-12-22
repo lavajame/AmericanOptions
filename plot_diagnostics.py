@@ -12,13 +12,18 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm
+from scipy.optimize import root_scalar
 import pandas as pd
+
+# Global number of timesteps for all pricers
+NT_GLOBAL = 200
 
 from american_options import (
     GBMCHF,
     MertonCHF,
     KouCHF,
     VGCHF,
+    cash_divs_to_proportional_divs,
     equivalent_gbm,
 )
 
@@ -41,7 +46,7 @@ def set_divs_override(divs: dict | None):
 def _get_divs(default_divs: dict) -> dict:
     """Return the global override if present, else the provided default."""
     return DIVS_OVERRIDE if DIVS_OVERRIDE is not None else default_divs
-from american_options.engine import COSPricer
+from american_options.engine import COSPricer, forward_price
 
 
 def bs_call(S, K, r, q, vol, T):
@@ -52,21 +57,28 @@ def bs_call(S, K, r, q, vol, T):
 
 
 class FDMPricer:
-    """Implicit finite difference pricer for GBM with proportional discrete dividends."""
+    """Implicit finite difference pricer for GBM with discrete dividends.
 
-    def __init__(self, S0, r, q, vol, divs, NS=200, NT=200):
+    Project-wide convention: dividends are specified as cash amounts in spot currency:
+        divs[t] = (D_mean, D_std)
+    For these diagnostics, we convert them internally to a proportional form using
+    the expected pre-div forward (same approximation as the COS engine).
+    """
+
+    def __init__(self, S0, r, q, vol, divs, NS=200, NT=None):
         self.S0 = S0
         self.r = r
         self.q = q
         self.vol = vol
-        self.divs = divs
+        self.divs = cash_divs_to_proportional_divs(float(S0), float(r), float(q), divs)
         self.NS = NS
-        self.NT = NT
+        self.NT = NT if NT is not None else NT_GLOBAL
 
-    def price(self, K, T, american=False, debug=False):
-        """Implicit backward Euler FD for European/American call with discrete proportional dividends.
+    def price(self, K, T, american=False, is_call=True, debug=False):
+        """Implicit backward Euler FD for European/American call/put with discrete proportional dividends.
 
         - Dividend mapping at exact ex-div steps: V_pre(S) = V_post(S*(1-m)).
+        - `is_call=True` prices calls (default); `is_call=False` prices puts.
         - Early exercise applied after dividend mapping.
         """
         K = float(K)
@@ -78,7 +90,10 @@ class FDMPricer:
         dt = T / NT if NT > 0 else T
 
         # Terminal payoff
-        V = np.maximum(S - K, 0.0)
+        if is_call:
+            V = np.maximum(S - K, 0.0)
+        else:
+            V = np.maximum(K - S, 0.0)
 
         # Precompute coefficients
         sigma2 = self.vol * self.vol
@@ -104,9 +119,15 @@ class FDMPricer:
             rhs = V[i]
 
             # Apply boundary conditions to RHS
-            # S=0: V=0; S=S_max: V ~ S_max - K * exp(-r*(T - t_n))
-            V_upper = S_max - K * np.exp(-self.r * (T - t_n))
-            rhs[0] += lower[0] * 0.0
+            # For calls: S=0 -> 0, S->S_max -> S_max - K*exp(-r*(T-t_n))
+            # For puts:  S=0 -> K*exp(-r*(T-t_n)), S->S_max -> 0
+            if is_call:
+                V_lower = 0.0
+                V_upper = S_max - K * np.exp(-self.r * (T - t_n))
+            else:
+                V_lower = K * np.exp(-self.r * (T - t_n))
+                V_upper = 0.0
+            rhs[0] += lower[0] * V_lower
             rhs[-1] += upper[-1] * V_upper
 
             # Thomas algorithm
@@ -121,7 +142,7 @@ class FDMPricer:
                 d_prime[k] = (rhs[k] + lower[k] * d_prime[k - 1]) / denom
 
             V_new = np.zeros(NS + 1)
-            V_new[0] = 0.0
+            V_new[0] = V_lower
             V_new[-1] = V_upper
             V_new[NS - 1] = d_prime[-1]
             for k in range(NS - 2, 0, -1):
@@ -137,12 +158,16 @@ class FDMPricer:
                         m = md
                         break
                 if m is not None and m > 0:
-                    S_post = S * (1.0 - m)
-                    V_new = np.interp(S, S_post, V_new, left=0.0, right=V_new[-1])
+                    # CORRECT dividend mapping: V_pre(S) = V_post(S*(1-m))
+                    V_new = np.interp(S * (1.0 - m), S, V_new, left=0.0, right=V_new[-1])
 
-            # Early exercise
+            # Early exercise (intrinsic)
             if american:
-                V_new = np.maximum(V_new, S - K)
+                if is_call:
+                    intrinsic = np.maximum(S - K, 0.0)
+                else:
+                    intrinsic = np.maximum(K - S, 0.0)
+                V_new = np.maximum(V_new, intrinsic)
 
             V = V_new
 
@@ -155,6 +180,49 @@ class FDMPricer:
 
 def ensure_fig_dir():
     os.makedirs("figs", exist_ok=True)
+
+
+def _invert_vol_for_european_cos_price(
+    *,
+    target_price: float,
+    S0: float,
+    K: float,
+    T: float,
+    r: float,
+    q: float,
+    divs: dict,
+    is_call: bool,
+    N: int,
+    L: float,
+    vol_lo: float = 1e-6,
+    vol_hi: float = 2.0,
+    max_hi: float = 8.0,
+) -> float:
+    if not np.isfinite(target_price) or target_price <= 0.0:
+        return float("nan")
+
+    def f(vol: float) -> float:
+        model = GBMCHF(S0, r, q, divs, {"vol": float(vol)})
+        pricer = COSPricer(model, N=N, L=L)
+        price = float(pricer.european_price(np.array([K], dtype=float), T, is_call=is_call)[0])
+        return price - target_price
+
+    lo = float(vol_lo)
+    hi = float(vol_hi)
+    flo = f(lo)
+    fhi = f(hi)
+
+    while np.isfinite(flo) and np.isfinite(fhi) and np.sign(flo) == np.sign(fhi) and hi < max_hi:
+        hi = min(max_hi, hi * 1.5)
+        fhi = f(hi)
+
+    if not (np.isfinite(flo) and np.isfinite(fhi)):
+        return float("nan")
+    if np.sign(flo) == np.sign(fhi):
+        return float("nan")
+
+    res = root_scalar(f, bracket=(lo, hi), method="brentq")
+    return float(res.root) if res.converged else float("nan")
 
 
 def plot_cos_vs_bs():
@@ -186,20 +254,22 @@ def plot_cos_vs_bs():
 
 
 def plot_american_hard_vs_soft():
-    S0, r, q, T = 100.0, 0.02, 0.01, 1.0
-    vol = 0.25
+    S0, r, q, T = 100.0, 0.02, 0.0, 1.0
+    vol = 0.1
+    divs = {0.5: (5.0, 0.0)}
+
     K = np.linspace(70, 130, 61)
-    gbm = GBMCHF(S0, r, q, {}, {"vol": vol})
+    gbm = GBMCHF(S0, r, q, divs, {"vol": vol})
     pr = COSPricer(gbm, N=256, L=8.0)
-    amer_hard = pr.american_price(K, T, steps=80, beta=50.0, use_softmax=False)
-    amer_soft = pr.american_price(K, T, steps=80, beta=20.0, use_softmax=True)
-    euro = pr.european_price(K, T)
+    amer_hard, euro_hard = pr.american_price(K, T, steps=NT_GLOBAL, beta=50.0, use_softmax=False, return_european=True)
+    amer_soft, euro_soft = pr.american_price(K, T, steps=NT_GLOBAL, beta=20.0, use_softmax=True, return_european=True)
     intrinsic = np.maximum(S0 - K, 0.0)
 
     fig, ax = plt.subplots(figsize=(7, 4.5))
     ax.plot(K, amer_hard, label="American (hard max)")
     ax.plot(K, amer_soft, "--", label="American (softmax)")
-    ax.plot(K, euro, ":", label="European")
+    ax.plot(K, euro_hard, ":", label="European (hard max)")
+    ax.plot(K, euro_soft, "*", label="European (softmax)")
     ax.plot(K, intrinsic, "-.", label="Intrinsic")
     ax.set_title("American COS: hard vs softmax")
     ax.set_xlabel("Strike")
@@ -265,13 +335,358 @@ def plot_levy_vs_equiv_gbm():
     plt.close(fig)
 
 
+def plot_vg_implied_vol_smile_dividend_uncertainty(
+    *,
+    out_png: str = "figs/vg_iv_smile_div_uncertainty.png",
+    out_csv: str = "figs/vg_iv_smile_div_uncertainty.csv",
+    S0: float = 100.0,
+    T: float = 1.0,
+    r: float = 0.02,
+    q: float = 0.0,
+    strikes: np.ndarray | None = None,
+    div_mean: float = 2.0,
+    div_times: tuple[float, ...] = (0.25, 0.75),
+    div_stds: tuple[float, ...] = (0.0, 0.01, 0.02),
+    vg_sigma: float = 0.20,
+    vg_theta: float = -0.10,
+    vg_nu: float = 0.20,
+    is_call: bool = True,
+    N: int = NT_GLOBAL,
+    L: float = 12.0,
+) -> pd.DataFrame:
+    """Implied vol smile vs strike for VG European prices under dividend uncertainty."""
+
+    ensure_fig_dir()
+
+    if strikes is None:
+        strikes = np.linspace(60.0, 140.0, 33)
+    strikes = np.asarray(strikes, dtype=float)
+
+    rows = []
+    for div_std in div_stds:
+        divs = {float(t): (float(div_mean), float(div_std)) for t in div_times}
+        vg_model = VGCHF(S0, r, q, divs, {"sigma": vg_sigma, "theta": vg_theta, "nu": vg_nu})
+        vg_pricer = COSPricer(vg_model, N=N, L=L)
+
+        for K in strikes:
+            vg_price = float(vg_pricer.european_price(np.array([K], dtype=float), T, is_call=is_call)[0])
+            iv = _invert_vol_for_european_cos_price(
+                target_price=vg_price,
+                S0=S0,
+                K=float(K),
+                T=T,
+                r=r,
+                q=q,
+                divs=divs,
+                is_call=is_call,
+                N=N,
+                L=L,
+            )
+            rows.append({"K": float(K), "div_std": float(div_std), "vg_price": vg_price, "iv_gbm": iv})
+
+    df = pd.DataFrame(rows)
+    df.to_csv(out_csv, index=False)
+
+    fig, ax = plt.subplots(1, 1, figsize=(9, 5))
+    for div_std in div_stds:
+        dfi = df[df["div_std"] == float(div_std)].sort_values("K")
+        ax.plot(dfi["K"], dfi["iv_gbm"], label=f"div std = {div_std:.3f}")
+    ax.set_xlabel("Strike K")
+    ax.set_ylabel("Implied vol (GBM via COS inversion)")
+    ax.set_title("VG European implied vol smile vs strike\n(discrete dividend uncertainty)")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
+
+    return df
+
+
+def gbm_mc_european_price_with_uncertain_prop_divs(
+    *,
+    S0: float,
+    K: float | np.ndarray,
+    T: float,
+    r: float,
+    q: float,
+    vol: float,
+    divs: dict,
+    is_call: bool = True,
+    n_paths: int = 200_000,
+    seed: int = 123,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Monte Carlo European price under GBM with uncertain discrete dividends.
+
+    Project-wide convention: divs are cash amounts in spot currency.
+    For MC we convert them to the same internal proportional form used by COS.
+
+    Returns (price, standard_error) for each strike in K.
+    """
+    S = gbm_mc_terminal_spots_with_uncertain_prop_divs(
+        S0=S0,
+        T=T,
+        r=r,
+        q=q,
+        vol=vol,
+        divs=divs,
+        n_paths=n_paths,
+        seed=seed,
+    )
+    K = np.atleast_1d(np.asarray(K, dtype=float))
+    if is_call:
+        payoff = np.maximum(S[:, None] - K[None, :], 0.0)
+    else:
+        payoff = np.maximum(K[None, :] - S[:, None], 0.0)
+
+    disc = np.exp(-float(r) * float(T))
+    price = disc * payoff.mean(axis=0)
+    # standard error of discounted payoff
+    se = disc * payoff.std(axis=0, ddof=1) / np.sqrt(float(n_paths))
+    return price.astype(float), se.astype(float)
+
+
+def gbm_mc_terminal_spots_with_uncertain_prop_divs(
+    *,
+    S0: float,
+    T: float,
+    r: float,
+    q: float,
+    vol: float,
+    divs: dict,
+    n_paths: int = 200_000,
+    seed: int = 123,
+) -> np.ndarray:
+    """Simulate terminal spots S_T under GBM with uncertain discrete dividends.
+
+    Project-wide convention: divs are cash amounts in spot currency.
+    We convert to internal proportional parameters and then simulate multiplicative drops.
+    """
+    rng = np.random.default_rng(seed)
+
+    divs_prop = cash_divs_to_proportional_divs(float(S0), float(r), float(q), divs)
+
+    div_items = [(float(t), float(m), float(std)) for t, (m, std) in divs_prop.items() if 0.0 < float(t) <= float(T)]
+    div_items.sort(key=lambda z: z[0])
+
+    times = [0.0] + [t for (t, _, _) in div_items] + [float(T)]
+    dts = np.diff(np.array(times, dtype=float))
+
+    S = np.full(int(n_paths), float(S0), dtype=float)
+
+    drift_per_year = float(r) - float(q) - 0.5 * float(vol) ** 2
+    vol_sqrt = float(vol)
+
+    for idx, dt in enumerate(dts, start=1):
+        if dt > 0.0:
+            Z = rng.standard_normal(S.shape[0])
+            S *= np.exp(drift_per_year * dt + vol_sqrt * np.sqrt(dt) * Z)
+
+        if idx < len(times) - 1:
+            _, m, std = div_items[idx - 1]
+            if m != 0.0 or std != 0.0:
+                Zd = rng.standard_normal(S.shape[0])
+                lnD = np.log(max(1.0 - m, 1e-12)) - 0.5 * (std ** 2) + std * Zd
+                S *= np.exp(lnD)
+
+    return S
+
+
+def plot_gbm_mc_vs_cos_dividend_uncertainty(
+    *,
+    out_png: str = "figs/gbm_mc_vs_cos_div_uncertainty.png",
+    out_csv: str = "figs/gbm_mc_vs_cos_div_uncertainty.csv",
+    S0: float = 100.0,
+    T: float = 0.3,
+    r: float = 0.0,
+    q: float = 0.0,
+    vol: float = 0.10,
+    strikes: np.ndarray | None = None,
+    div_mean: float = 3.0,
+    div_times: tuple[float, ...] = (0.25, 0.75),
+    div_stds: tuple[float, ...] | None = (0.0, 2.0, 4.0, 8.0),
+    div_std: float | None = None,
+    is_call: bool = True,
+    mc_paths: int = 1_000_000,
+    mc_seed: int = 123,
+    cos_N: int = 512,
+    cos_L: float = 10.0,
+    iv_cos_N: int = NT_GLOBAL,
+    iv_cos_L: float = 12.0,
+    use_otm_for_iv: bool = True,
+) -> pd.DataFrame:
+    """Compare GBM MC vs GBM COS under uncertain *cash* dividends.
+
+    Also computes an "equivalent" implied vol by inverting to a deterministic-dividend GBM (std=0)
+    for both MC and COS target prices.
+    """
+    ensure_fig_dir()
+
+    # Back-compat: if div_std provided, use it as a single scenario.
+    if div_std is not None:
+        div_stds_use = (float(div_std),)
+    else:
+        div_stds_use = tuple(float(x) for x in (div_stds or (0.0,)))
+
+    # Auto strike grid: centered around the deterministic-cash-dividend forward F_det,
+    # with width scaled by vol*sqrt(T). This keeps the strike range sensible as T/vol change.
+    # Note: dividends are cash amounts; we must not treat div_mean as a proportional drop.
+    divs_det = {float(t): (float(div_mean), 0.0) for t in div_times if 0.0 < float(t) <= float(T) + 1e-12}
+    F_det = float(forward_price(float(S0), float(r), float(q), float(T), divs_det))
+
+    if strikes is None:
+        n_sigma = 3.0
+        width = float(vol) * float(np.sqrt(max(T, 1e-16)))
+        K_lo = F_det * float(np.exp(-n_sigma * width))
+        K_hi = F_det * float(np.exp(n_sigma * width))
+        strikes = np.linspace(K_lo, K_hi, 33)
+    strikes = np.asarray(strikes, dtype=float)
+
+    rows = []
+
+    fig, ax = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+    for scenario_idx, div_std_s in enumerate(div_stds_use):
+        divs_unc = {float(t): (float(div_mean), float(div_std_s)) for t in div_times if 0.0 < float(t) <= float(T) + 1e-12}
+
+        # Simulate once; compute both call/put prices for OTM IV extraction.
+        S_T = gbm_mc_terminal_spots_with_uncertain_prop_divs(
+            S0=S0,
+            T=T,
+            r=r,
+            q=q,
+            vol=vol,
+            divs=divs_unc,
+            n_paths=mc_paths,
+            seed=mc_seed + 97 * scenario_idx,
+        )
+        disc = np.exp(-float(r) * float(T))
+        call_payoff = np.maximum(S_T[:, None] - strikes[None, :], 0.0)
+        put_payoff = np.maximum(strikes[None, :] - S_T[:, None], 0.0)
+        mc_call = disc * call_payoff.mean(axis=0)
+        mc_put = disc * put_payoff.mean(axis=0)
+        mc_call_se = disc * call_payoff.std(axis=0, ddof=1) / np.sqrt(float(mc_paths))
+        mc_put_se = disc * put_payoff.std(axis=0, ddof=1) / np.sqrt(float(mc_paths))
+
+        # For the price panel keep a single instrument curve (default: whatever caller requested)
+        if is_call:
+            mc_price, mc_se = mc_call, mc_call_se
+        else:
+            mc_price, mc_se = mc_put, mc_put_se
+
+        gbm_unc = GBMCHF(S0, r, q, divs_unc, {"vol": vol})
+        pr_unc = COSPricer(gbm_unc, N=cos_N, L=cos_L)
+        cos_call = np.asarray(pr_unc.european_price(strikes, T, is_call=True), dtype=float)
+        cos_put = np.asarray(pr_unc.european_price(strikes, T, is_call=False), dtype=float)
+        cos_price = cos_call if is_call else cos_put
+
+        iv_mc = []
+        iv_cos = []
+        iv_opt_type = []
+        for idx, K in enumerate(strikes):
+            if use_otm_for_iv:
+                # Use deterministic forward as moneyness split to avoid low-vega ITM inversion noise.
+                use_call = bool(float(K) >= F_det)
+            else:
+                use_call = bool(is_call)
+
+            target_mc = float(mc_call[idx] if use_call else mc_put[idx])
+            target_cos = float(cos_call[idx] if use_call else cos_put[idx])
+            iv_opt_type.append("C" if use_call else "P")
+
+            iv_mc.append(
+                _invert_vol_for_european_cos_price(
+                    target_price=target_mc,
+                    S0=S0,
+                    K=float(K),
+                    T=T,
+                    r=r,
+                    q=q,
+                    divs=divs_det,
+                    is_call=use_call,
+                    N=iv_cos_N,
+                    L=iv_cos_L,
+                )
+            )
+            iv_cos.append(
+                _invert_vol_for_european_cos_price(
+                    target_price=target_cos,
+                    S0=S0,
+                    K=float(K),
+                    T=T,
+                    r=r,
+                    q=q,
+                    divs=divs_det,
+                    is_call=use_call,
+                    N=iv_cos_N,
+                    L=iv_cos_L,
+                )
+            )
+        iv_mc = np.asarray(iv_mc, dtype=float)
+        iv_cos = np.asarray(iv_cos, dtype=float)
+
+        for idx, K in enumerate(strikes):
+            rows.append(
+                {
+                    "div_std": float(div_std_s),
+                    "K": float(K),
+                    "iv_option": iv_opt_type[idx],
+                    "mc_price": float(mc_price[idx]),
+                    "mc_se": float(mc_se[idx]),
+                    "mc_call": float(mc_call[idx]),
+                    "mc_put": float(mc_put[idx]),
+                    "mc_call_se": float(mc_call_se[idx]),
+                    "mc_put_se": float(mc_put_se[idx]),
+                    "cos_price": float(cos_price[idx]),
+                    "cos_call": float(cos_call[idx]),
+                    "cos_put": float(cos_put[idx]),
+                    "abs_diff": float(abs(mc_price[idx] - cos_price[idx])),
+                    "iv_det_gbm_from_mc": float(iv_mc[idx]),
+                    "iv_det_gbm_from_cos": float(iv_cos[idx]),
+                }
+            )
+
+        label_suffix = f"std={div_std_s:.3f}"
+        ax[0].plot(strikes, cos_price, lw=2, label=f"COS {label_suffix}")
+        ax[0].errorbar(
+            strikes,
+            mc_price,
+            yerr=2.0 * mc_se,
+            fmt="o",
+            ms=3,
+            capsize=2,
+            alpha=0.8,
+            label=f"MC ±2SE {label_suffix}",
+        )
+        ax[1].plot(strikes, iv_cos, lw=2, label=f"IV from COS {label_suffix}")
+        ax[1].plot(strikes, iv_mc, "--", lw=1.5, label=f"IV from MC {label_suffix}")
+
+    df = pd.DataFrame(rows)
+    df.to_csv(out_csv, index=False)
+
+    ax[0].set_ylabel("European price")
+    ax[0].set_title("GBM: MC vs COS with uncertain cash dividends (sweep div std)")
+    ax[0].grid(True, alpha=0.3)
+    ax[0].legend(ncol=2, fontsize=9)
+
+    ax[1].set_xlabel("Strike K")
+    ax[1].set_ylabel("Implied vol (det-div GBM inversion, OTM)" if use_otm_for_iv else "Implied vol (det-div GBM inversion)")
+    ax[1].grid(True, alpha=0.3)
+    ax[1].legend(ncol=2, fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
+    return df
+
+
 def plot_american_dividend_continuation():
     """Compare European continuation (standalone COS) vs American continuation through dividend rollback.
 
     Plots continuation value at intermediate times during backward induction through dividends.
     """
     S0, r, q, T = 100.0, 0.02, 0.0, 1.0
-    _default_divs = {0.25: (0.02, 1e-10), 0.75: (0.02, 1e-10)}  # divs at t=0.25, 0.75
+    _default_divs = {0.25: (2.0, 0.0), 0.75: (2.0, 0.0)}  # cash divs at t=0.25, 0.75
     divs = _get_divs(_default_divs)
     K = 100.0  # ATM strike
     vol = 0.25
@@ -295,7 +710,7 @@ def plot_american_dividend_continuation():
     for s in S_eval:
         m_temp = GBMCHF(s, r, q, divs, {"vol": vol})
         pr_temp = COSPricer(m_temp, N=256, L=8.0)
-        p = pr_temp.american_price(np.array([K]), T, steps=100, use_softmax=False)[0]
+        p = pr_temp.american_price(np.array([K]), T, steps=NT_GLOBAL, use_softmax=False)[0]
         amer_vals.append(p)
     amer_vals = np.array(amer_vals)
 
@@ -330,7 +745,7 @@ def plot_american_through_time():
     - FDM American (fast approximation at key points)
     """
     S0, r, q, T = 100.0, 0.02, 0.0, 1.0
-    _default_divs = {0.25: (0.02, 1e-10), 0.75: (0.02, 1e-10)}
+    _default_divs = {0.25: (2.0, 0.0), 0.75: (2.0, 0.0)}
     divs = _get_divs(_default_divs)
     K = np.array([100.0])
     vol = 0.25
@@ -338,7 +753,7 @@ def plot_american_through_time():
     # Run COS backward induction once with trajectory caching (both American and continuation)
     pricer = COSPricer(GBMCHF(S0, r, q, divs, {"vol": vol}), N=128, L=8.0)
     amer_prices, euro_prices, cos_amer_trajectory, cos_cont_trajectory = pricer.american_price(
-        K, T, steps=40, return_european=True, return_trajectory=True, return_continuation_trajectory=True
+        K, T, steps=NT_GLOBAL, return_european=True, return_trajectory=True, return_continuation_trajectory=True
     )
     
     # Extract times and values from trajectories
@@ -350,10 +765,7 @@ def plot_american_through_time():
     cos_euro_standalone = []
     for t in cos_times:
         tau = T - t
-        if tau < 1e-6:
-            euro_sa = max(S0 - K[0], 0.0)
-        else:
-            euro_sa = pricer.european_price(K, tau)[0]
+        euro_sa = pricer.european_price(K, tau)[0]
         cos_euro_standalone.append(euro_sa)
     cos_euro_standalone = np.array(cos_euro_standalone)
     
@@ -361,10 +773,7 @@ def plot_american_through_time():
     cos_euro_standalone = []
     for t in cos_times:
         tau = T - t
-        if tau < 1e-6:
-            euro_sa = max(S0 - K[0], 0.0)
-        else:
-            euro_sa = pricer.european_price(K, tau)[0]
+        euro_sa = pricer.european_price(K, tau)[0]
         cos_euro_standalone.append(euro_sa)
     cos_euro_standalone = np.array(cos_euro_standalone)
     
@@ -417,80 +826,133 @@ def plot_american_through_time():
     plt.close(fig)
 
 
-def plot_continuation_through_time():
-    """New combined plot focusing only on continuation through time.
+def plot_continuation_through_time(do_lsmc=False):
+    """Combined function: exports CSV and plots continuation through time.
 
-    Plots COS American vs COS continuation (European-from-rollback) across t in [0, T].
+    - Produces figs/continuation_through_time.csv
+    - Produces figs/continuation_through_time.png
+    - If do_lsmc=True, includes LSMC runs and plots; otherwise, skips them.
     """
     S0, r, q, T = 100.0, 0.02, 0.0, 1.0
-    divs = {0.25: (0.02, 1e-10), 0.75: (0.02, 1e-10)}  # divs at t=0.25, 0.75
+    divs = {0.25: (2.0, 0.5), 0.75: (2.0, 0.5)}
     K = np.array([100.0])
     vol = 0.25
 
-    pricer = COSPricer(GBMCHF(S0, r, q, divs, {"vol": vol}), N=128, L=8.0)
-    prices, euro, amer_traj, cont_traj = pricer.american_price(
-        K, T, steps=40, return_european=True, return_trajectory=True, return_continuation_trajectory=True
-    )
+    base_model = GBMCHF(S0, r, q, divs, {"vol": vol})
+    pricer = COSPricer(base_model, N=128, L=8.0)
+    # Use coarse grid plus fine windows around dividend dates
+    eps = 1e-6
+    coarse = np.linspace(eps, T-eps, 41)
+    fine1 = np.linspace(0.24, 0.26, 21)
+    fine2 = np.linspace(0.74, 0.76, 21)
+    # round to avoid duplicates from float construction (e.g. two representations of 0.25)
+    times = np.unique(np.round(np.concatenate([coarse, fine1, fine2]), 12))
 
-    times = np.array([t for t, _ in amer_traj])
-    amer_vals = np.array([p for _, p in amer_traj])
-    cont_vals = np.array([p for _, p in cont_traj])
-
-    # COS European standalone through time (should match continuation)
     cos_euro_standalone = []
-    for t in times:
-        tau = T - t
-        if tau < 1e-6:
-            cos_euro_standalone.append(max(S0 - K[0], 0.0))
-        else:
-            cos_euro_standalone.append(pricer.european_price(K, tau)[0])
-    cos_euro_standalone = np.array(cos_euro_standalone)
-
-    # FDM European and American via implicit solver
-    fdm = FDMPricer(S0, r, q, vol, divs, NS=200, NT=200)
+    cos_euro_from_rb = []
+    cos_american = []
     fdm_euro = []
-    fdm_amer = []
+    fdm_american = []
+    if do_lsmc:
+        from american_options.lsmc import LSMCPricer
+        lsmc = LSMCPricer(S0, r, q, divs, vol, seed=2025)
+        lsmc_amer_train = []
+        lsmc_amer_refit = []
+        lsmc_cont_train = []
+        lsmc_cont_refit = []
     for t in times:
         tau = T - t
-        if tau < 1e-6:
-            intrinsic = max(S0 - K[0], 0.0)
-            fdm_euro.append(intrinsic)
-            fdm_amer.append(intrinsic)
-        else:
-            fdm_euro.append(fdm.price(K[0], tau, american=False))
-            fdm_amer.append(fdm.price(K[0], tau, american=True))
-    fdm_euro = np.array(fdm_euro)
-    fdm_amer = np.array(fdm_amer)
+        # Shift *cash* dividends to remaining horizon
+        divs_shift = {dt - t: (Dm, Ds) for dt, (Dm, Ds) in divs.items() if dt > t + 1e-12}
 
+        # If a shifted dividend is extremely close to tau=0, treat it as immediate.
+        # With cash dividends, approximate an immediate dividend by subtracting its *mean* from spot.
+        S0_eff = S0
+        if divs_shift and NT_GLOBAL > 0 and tau > 0:
+            dt_nom = tau / NT_GLOBAL
+            # Treat dividends within ~one timestep as immediate to avoid step-placement artifacts.
+            eps_immediate = 2.00 * dt_nom
+            immediate_times = sorted([td for td in divs_shift.keys() if td <= eps_immediate])
+            if immediate_times:
+                for td in immediate_times:
+                    Dm, _Ds = divs_shift[td]
+                    S0_eff = float(max(1e-12, float(S0_eff) - float(Dm)))
+                divs_shift = {td: v for td, v in divs_shift.items() if td > eps_immediate}
+
+        # COS with shifted dividends
+        model_t = GBMCHF(S0_eff, r, q, divs_shift, {"vol": vol})
+        pricer_t = COSPricer(model_t, N=128, L=8.0)
+
+        euro_sa = pricer_t.european_price(K, tau)[0]
+        cos_euro_standalone.append(euro_sa)
+        amer_tau, euro_tau = pricer_t.american_price(K, tau, steps=NT_GLOBAL, beta=20.0, use_softmax=True, return_european=True)
+        cos_american.append(amer_tau[0])
+        cos_euro_from_rb.append(euro_tau[0])
+
+        # FDM with shifted dividends
+        fdm_t = FDMPricer(S0_eff, r, q, vol, divs_shift, NS=400, NT=NT_GLOBAL)
+        fdm_euro.append(fdm_t.price(K[0], tau, american=False))
+        fdm_american.append(fdm_t.price(K[0], tau, american=True))
+        if do_lsmc:
+            # LSMC pricing for this remaining horizon
+            # Use a per-time pricer so we can incorporate S0_eff/divs_shift (esp. when an immediate dividend is applied).
+            from american_options.lsmc import LSMCPricer
+            lsmc_t = LSMCPricer(S0_eff, r, q, divs_shift, vol, seed=2025)
+            tr_price, tr_cont, rf_price, rf_cont = lsmc_t.price_at_tau(K[0], tau, steps=NT_GLOBAL, n_train=2000, n_price=2000, deg=3)
+            lsmc_amer_train.append(tr_price)
+            lsmc_amer_refit.append(rf_price)
+            lsmc_cont_train.append(tr_cont if tr_cont is not None else np.nan)
+            lsmc_cont_refit.append(rf_cont if rf_cont is not None else np.nan)
+
+    data = {
+        "time": times,
+        "cos_euro_standalone": cos_euro_standalone,
+        "cos_euro_from_rollback": cos_euro_from_rb,
+        "fdm_euro": fdm_euro,
+        "cos_american": cos_american,
+        "fdm_american": fdm_american,
+    }
+    if do_lsmc:
+        data["lsmc_american_train"] = lsmc_amer_train
+        data["lsmc_american_refit"] = lsmc_amer_refit
+        data["lsmc_cont_train_at_S0"] = lsmc_cont_train
+        data["lsmc_cont_refit_at_S0"] = lsmc_cont_refit
+
+    df = pd.DataFrame(data)
+    os.makedirs("figs", exist_ok=True)
+    df.to_csv("figs/continuation_through_time.csv", index=False)
+    print("Saved dataframe:", "figs/continuation_through_time.csv")
+    do_print_rows = False
+    if do_print_rows:
+        # Show rows around dividend dates for inspection
+        print("\nRows near first dividend (t~0.25):")
+        print(df[(df.time >= 0.22) & (df.time <= 0.28)].to_string(index=False))
+        print("\nRows near second dividend (t~0.75):")
+        print(df[(df.time >= 0.72) & (df.time <= 0.78)].to_string(index=False))
+
+    # Now plot using the just-generated DataFrame
     fig, ax = plt.subplots(figsize=(12, 7))
-    ax.plot(times, cos_euro_standalone, label="COS European (standalone)", linewidth=1.8, color="orange", linestyle=":")
-    ax.plot(times, cont_vals, label="COS European (from rollback)", linewidth=2, color="cyan", linestyle="--")
-    ax.plot(times, fdm_euro, label="FDM European", linewidth=1.8, color="purple", linestyle=":")
-    ax.plot(times, amer_vals, label="COS American", linewidth=2.5, color="red")
-    ax.plot(times, fdm_amer, label="FDM American", linewidth=2, color="magenta", linestyle="--")
-
-    # Attempt to overlay LSMC series from the exported CSV (if available)
-    csvp = "figs/continuation_through_time.csv"
-    if os.path.exists(csvp):
-        try:
-            df = pd.read_csv(csvp)
-            if "lsmc_american_train" in df.columns:
-                ax.plot(df.time, df.lsmc_american_train, label="LSMC American (train)", color="green", linestyle="-.")
-                ax.plot(df.time, df.lsmc_american_refit, label="LSMC American (refit)", color="lime", linestyle=":")
-                if "lsmc_cont_train_at_S0" in df.columns:
-                    ax.plot(df.time, df.lsmc_cont_train_at_S0, label="LSMC cont@S0 (train)", color="green", linestyle="--", alpha=0.7)
-                if "lsmc_cont_refit_at_S0" in df.columns:
-                    ax.plot(df.time, df.lsmc_cont_refit_at_S0, label="LSMC cont@S0 (refit)", color="lime", linestyle="--", alpha=0.7)
-            # plot any heavy refit columns present (e.g., lsmc_refit_500000)
-            for c in df.columns:
-                if c.startswith('lsmc_refit_') and c not in ('lsmc_american_refit', 'lsmc_american_train'):
-                    n = c.split('_')[-1]
-                    ax.plot(df.time, df[c], label=f"LSMC all-in refit ({n} paths)", color='black', linestyle='--', linewidth=1.6)
-                if c.startswith('lsmc_cont_refit_at_S0_'):
-                    n = c.split('_')[-1]
-                    ax.plot(df.time, df[c], label=f"LSMC cont@S0 refit ({n} paths)", color='black', linestyle=':', alpha=0.7)
-        except Exception:
-            pass
+    ax.plot(df.time, df.cos_euro_standalone, label="COS European (standalone)", linewidth=1.8, color="orange", linestyle=":")
+    ax.plot(df.time, df.cos_euro_from_rollback, label="COS European (from rollback)", linewidth=2, color="cyan", linestyle="--")
+    ax.plot(df.time, df.fdm_euro, label="FDM European", linewidth=1.8, color="purple", linestyle=":")
+    ax.plot(df.time, df.cos_american, label="COS American", linewidth=2.5, color="red",alpha=0.5)
+    ax.plot(df.time, df.fdm_american, label="FDM American", linewidth=2, color="magenta", linestyle="--")
+    if do_lsmc:
+        if "lsmc_american_train" in df.columns:
+            ax.plot(df.time, df.lsmc_american_train, label="LSMC American (train)", color="green", linestyle="-.")
+            ax.plot(df.time, df.lsmc_american_refit, label="LSMC American (refit)", color="lime", linestyle=":")
+            if "lsmc_cont_train_at_S0" in df.columns:
+                ax.plot(df.time, df.lsmc_cont_train_at_S0, label="LSMC cont@S0 (train)", color="green", linestyle="--", alpha=0.7)
+            if "lsmc_cont_refit_at_S0" in df.columns:
+                ax.plot(df.time, df.lsmc_cont_refit_at_S0, label="LSMC cont@S0 (refit)", color="lime", linestyle="--", alpha=0.7)
+        # plot any heavy refit columns present (e.g., lsmc_refit_500000)
+        for c in df.columns:
+            if c.startswith('lsmc_refit_') and c not in ('lsmc_american_refit', 'lsmc_american_train'):
+                n = c.split('_')[-1]
+                ax.plot(df.time, df[c], label=f"LSMC all-in refit ({n} paths)", color='black', linestyle='--', linewidth=1.6)
+            if c.startswith('lsmc_cont_refit_at_S0_'):
+                n = c.split('_')[-1]
+                ax.plot(df.time, df[c], label=f"LSMC cont@S0 refit ({n} paths)", color='black', linestyle=':', alpha=0.7)
 
     # Mark dividend times
     for t_div in [0.25, 0.75]:
@@ -507,103 +969,108 @@ def plot_continuation_through_time():
     plt.close(fig)
 
 
-def export_continuation_dataframe():
-    """Produce a dataframe of the five time series through time and save to CSV.
+def plot_forward_parity_through_time():
+    """Plot model-free forward vs COS-implied forward via put-call parity as time-from-now.
 
-    Columns: time, cos_euro_standalone, cos_euro_from_rollback, fdm_euro, cos_american, fdm_american
-    Uses per-timestep pricing to avoid trajectory artifacts.
+    Here the x-axis is maturity $\tau$ (years from now), i.e. we roll forward by
+    increasing the horizon from 0→T.
+
+    Project-wide convention: dividends are cash amounts in spot currency.
+
+    We compute a model-free expected forward using the same approximation as the engine:
+        F_model(0,\tau) = forward_price(S0, r, q, \tau, divs_cash_up_to_tau)
+
+    Put-call parity implies:
+        F_implied = exp(r * \tau) * (C - P) + K
     """
+    ensure_fig_dir()
     S0, r, q, T = 100.0, 0.02, 0.0, 1.0
-    divs = {0.25: (0.02, 1e-10), 0.75: (0.02, 1e-10)}
-    K = np.array([100.0])
-    vol = 0.25
+    r = 0.0 # override
+    _default_divs = {0.25: (2.0, 0.0), 0.75: (2.0, 0.0)}
+    divs = _get_divs(_default_divs)
+    vol = 0.1
+    K0 = 100.0
 
-    base_model = GBMCHF(S0, r, q, divs, {"vol": vol})
-    pricer = COSPricer(base_model, N=128, L=8.0)
-    # Use coarse grid plus fine windows around dividend dates
-    coarse = np.linspace(0, T, 41)
+    # Maturity grid tau in (0, T) (avoid tau=0)
+    eps = 1e-6
+    coarse = np.linspace(eps, T - eps, 41)
     fine1 = np.linspace(0.24, 0.26, 21)
     fine2 = np.linspace(0.74, 0.76, 21)
-    times = np.unique(np.concatenate([coarse, fine1, fine2]))
+    taus = np.unique(np.round(np.concatenate([coarse, fine1, fine2]), 12))
 
-    cos_euro_standalone = []
-    cos_euro_from_rb = []
-    cos_american = []
-    fdm_euro = []
-    fdm_american = []
-    # LSMC pricer
-    from american_options.lsmc import LSMCPricer
-    lsmc = LSMCPricer(S0, r, q, divs, vol, seed=2025)
-    lsmc_amer_train = []
-    lsmc_amer_refit = []
-    lsmc_cont_train = []
-    lsmc_cont_refit = []
-    # FDM helpers
-    def spot_after_future_divs(S, divs_dict, t_current):
-        S_eff = S
-        for t_div, (m, _) in sorted(divs_dict.items()):
-            if t_div > t_current + 1e-12:
-                S_eff *= (1.0 - m)
-        return S_eff
+    def mean_factor_from_cash_divs(divs_cash: dict, tau: float) -> float:
+        divs_tau_cash = {t_div: v for t_div, v in divs_cash.items() if 0.0 < float(t_div) <= float(tau) + 1e-12}
+        divs_tau_prop = cash_divs_to_proportional_divs(float(S0), float(r), float(q), divs_tau_cash)
+        p = 1.0
+        for _t, (m, _std) in divs_tau_prop.items():
+            p *= max(1.0 - float(m), 1e-12)
+        return float(p)
 
-    for t in times:
-        tau = T - t
-        # Shift dividends to remaining horizon
-        divs_shift = {dt - t: (m, s) for dt, (m, s) in divs.items() if dt > t + 1e-12}
+    rows = []
+    for tau in taus:
+        # Include cash dividends that occur before maturity tau
+        divs_tau = {t_div: v for t_div, v in divs.items() if 0.0 < float(t_div) <= float(tau) + 1e-12}
+        prod = mean_factor_from_cash_divs(divs, float(tau))
 
-        # COS with shifted dividends
-        model_t = GBMCHF(S0, r, q, divs_shift, {"vol": vol})
-        pricer_t = COSPricer(model_t, N=128, L=8.0)
-        euro_sa = max(S0 - K[0], 0.0) if tau < 1e-6 else pricer_t.european_price(K, tau)[0]
-        cos_euro_standalone.append(euro_sa)
+        # Model-free forward / prepaid forward (consistent with engine approximation)
+        f_model = float(forward_price(float(S0), float(r), float(q), float(tau), divs_tau))
+        pf_model = float(np.exp(-r * tau) * f_model)
 
-        amer_tau, euro_tau = pricer_t.american_price(K, tau, steps=60, beta=20.0, use_softmax=True, return_european=True)
-        cos_american.append(amer_tau[0])
-        cos_euro_from_rb.append(euro_tau[0])
+        # COS European call/put at maturity tau
+        model_tau = GBMCHF(S0, r, q, divs_tau, {"vol": vol})
+        pr = COSPricer(model_tau, N=512, L=8.0)
+        call = float(pr.european_price(np.array([K0]), tau, is_call=True)[0])
+        put = float(pr.european_price(np.array([K0]), tau, is_call=False)[0])
 
-        # FDM with shifted dividends
-        fdm_t = FDMPricer(S0, r, q, vol, divs_shift, NS=400, NT=max(200, int(600 * tau / T) if T > 0 else 600))
-        if tau < 1e-6:
-            intrinsic = max(S0 - K[0], 0.0)
-            fdm_euro.append(intrinsic)
-            fdm_american.append(intrinsic)
-            lsmc_amer_train.append(intrinsic)
-            lsmc_amer_refit.append(intrinsic)
-            lsmc_cont_train.append(intrinsic)
-            lsmc_cont_refit.append(intrinsic)
-        else:
-            fdm_euro.append(fdm_t.price(K[0], tau, american=False))
-            fdm_american.append(fdm_t.price(K[0], tau, american=True))
-            # LSMC pricing for this remaining horizon
-            tr_price, tr_cont, rf_price, rf_cont = lsmc.price_at_tau(K[0], tau, steps=60, n_train=2000, n_price=2000, deg=3)
-            lsmc_amer_train.append(tr_price)
-            lsmc_amer_refit.append(rf_price)
-            lsmc_cont_train.append(tr_cont if tr_cont is not None else np.nan)
-            lsmc_cont_refit.append(rf_cont if rf_cont is not None else np.nan)
+        pf_implied = float(call - put + K0 * np.exp(-r * tau))
+        f_implied = float(np.exp(r * tau) * (call - put) + K0)
 
-    df = pd.DataFrame({
-        "time": times,
-        "cos_euro_standalone": cos_euro_standalone,
-        "cos_euro_from_rollback": cos_euro_from_rb,
-        "fdm_euro": fdm_euro,
-        "cos_american": cos_american,
-        "fdm_american": fdm_american,
-        "lsmc_american_train": lsmc_amer_train,
-        "lsmc_american_refit": lsmc_amer_refit,
-        "lsmc_cont_train_at_S0": lsmc_cont_train,
-        "lsmc_cont_refit_at_S0": lsmc_cont_refit,
-    })
-    os.makedirs("figs", exist_ok=True)
-    df.to_csv("figs/continuation_through_time.csv", index=False)
-    print("Saved dataframe:", "figs/continuation_through_time.csv")
-    # Show rows around dividend dates for inspection
-    print("\nRows near first dividend (t~0.25):")
-    print(df[(df.time >= 0.22) & (df.time <= 0.28)].to_string(index=False))
-    print("\nRows near second dividend (t~0.75):")
-    print(df[(df.time >= 0.72) & (df.time <= 0.78)].to_string(index=False))
+        rows.append({
+            "tau": tau,
+            "K": float(K0),
+            "div_prod": prod,
+            "forward_model": f_model,
+            "forward_implied": f_implied,
+            "prepaid_model": pf_model,
+            "prepaid_implied": pf_implied,
+            "call": call,
+            "put": put,
+            "parity_residual_prepaid": float(pf_implied - pf_model),
+        })
+
+    df = pd.DataFrame(rows).sort_values("tau")
+    df.to_csv("figs/forward_parity_through_time.csv", index=False)
+
+    fig, ax = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
+    ax[0].plot(df.tau, df.forward_model, label="Model-free forward", lw=2)
+    ax[0].plot(df.tau, df.forward_implied, "--", label="Implied via COS parity", lw=2)
+    ax[0].set_ylabel("Forward (undiscounted)")
+    ax[0].set_title("Forward vs maturity: model-free vs COS-implied (put-call parity)")
+    ax[0].legend(loc="best")
+    ax[0].grid(True, alpha=0.3)
+
+    ax[1].plot(df.tau, df.call, label="COS European Call", color="tab:orange")
+    ax[1].plot(df.tau, df.put, label="COS European Put", color="tab:blue")
+    ax[1].set_xlabel("Maturity (years from now)")
+    ax[1].set_ylabel("Option price")
+    ax[1].legend(loc="best")
+    ax[1].grid(True, alpha=0.3)
+
+    # Mark dividend times
+    for t_div in sorted([t for t in divs.keys() if 0.0 < t <= T]):
+        ax[0].axvline(x=t_div, color="gray", linestyle=":", alpha=0.4, linewidth=1)
+        ax[1].axvline(x=t_div, color="gray", linestyle=":", alpha=0.4, linewidth=1)
+
+    fig.tight_layout()
+    fig.savefig("figs/forward_parity_through_time.png", dpi=150)
+    plt.close(fig)
+    print("Saved:", "figs/forward_parity_through_time.png")
+    print("Saved:", "figs/forward_parity_through_time.csv")
 
 
-def run_focused_lsmc(refit_times, n_paths=500000, steps=60, deg=3):
+
+
+def run_focused_lsmc(refit_times, n_paths=500000, steps=None, deg=3):
     """Run heavy LSMC refit (all-in) at a focused set of times and append results to CSV.
 
     refit_times: list of times t in [0,T] at which to run a refit LSMC (tau=T-t)
@@ -611,6 +1078,8 @@ def run_focused_lsmc(refit_times, n_paths=500000, steps=60, deg=3):
     steps: number of timesteps in the LSMC
     deg: polynomial degree for basis
     """
+    if steps is None:
+        steps = NT_GLOBAL
     csvp = "figs/continuation_through_time.csv"
     if not os.path.exists(csvp):
         raise RuntimeError(f"CSV not found: {csvp}; run export_continuation_dataframe() first")
@@ -627,7 +1096,7 @@ def run_focused_lsmc(refit_times, n_paths=500000, steps=60, deg=3):
     q = 0.0
     vol = 0.25
     T = 1.0
-    divs = {0.25: (0.02, 1e-10), 0.75: (0.02, 1e-10)}
+    divs = {0.25: (2.0, 0.0), 0.75: (2.0, 0.0)}
     from american_options.lsmc import LSMCPricer
 
     lsmc = LSMCPricer(S0, r, q, divs, vol, seed=2025)
@@ -636,11 +1105,7 @@ def run_focused_lsmc(refit_times, n_paths=500000, steps=60, deg=3):
         tau = T - t
         idx = df['time'].sub(t).abs().idxmin()
         print(f"Running LSMC refit for t={t} (tau={tau}), idx={idx}, n_paths={n_paths}, steps={steps}")
-        if tau < 1e-8:
-            intrinsic = max(S0 - 100.0, 0.0)
-            df.loc[idx, col_price] = intrinsic
-            df.loc[idx, col_cont] = intrinsic
-            continue
+        # ...existing code...
         try:
             import time as _time
             t0 = _time.time()
@@ -684,7 +1149,7 @@ def run_cgmy_examples():
         pr = COSPricer(model, N=512, L=8.0)
         for K in Ks:
             eu = pr.european_price(np.array([K]), T)[0]
-            am = pr.american_price(np.array([K]), T, steps=200, use_softmax=False)[0]
+            am = pr.american_price(np.array([K]), T, steps=NT_GLOBAL, use_softmax=False)[0]
             rows.append({"name": ps["name"], "C": ps["C"], "G": ps["G"], "M": ps["M"], "Y": ps["Y"], "K": K, "european_cos": eu, "american_cos": am})
             print(f"{ps['name']} K={K}: European={eu:.6f}, American={am:.6f}")
 
@@ -696,12 +1161,16 @@ def run_cgmy_examples():
 
 
 if __name__ == "__main__":
+    print(f"Running COS American continuation plots with NT_GLOBAL={NT_GLOBAL}")
     ensure_fig_dir()
-    plot_cos_vs_bs()
-    plot_american_hard_vs_soft()
-    plot_levy_vs_equiv_gbm()
-    plot_american_dividend_continuation()
-    plot_american_through_time()
-    plot_continuation_through_time()
-    run_cgmy_examples()
-    print("Saved plots and CGMY examples")
+    plot_gbm_mc_vs_cos_dividend_uncertainty()
+    if True:
+        plot_forward_parity_through_time()
+        plot_cos_vs_bs()
+        plot_american_hard_vs_soft()
+        plot_levy_vs_equiv_gbm()
+        plot_american_dividend_continuation()
+        plot_american_through_time()
+        plot_continuation_through_time()
+        run_cgmy_examples()
+        print("Saved plots and CGMY examples")

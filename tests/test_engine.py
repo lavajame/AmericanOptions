@@ -8,7 +8,8 @@ def test_european_and_american_run():
     S0 = 100.0
     r = 0.02
     q = 0.01
-    divs = {0.5: (0.03, 0.01)}
+    # Cash dividend at 6m: mean $3, std $0.5
+    divs = {0.5: (3.0, 0.5)}
     params_gbm = {"vol": 0.25}
     gbm = GBMCHF(S0, r, q, divs, params_gbm)
     K = np.array([90.0, 100.0, 110.0])

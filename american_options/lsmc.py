@@ -1,8 +1,14 @@
 import numpy as np
 
+from american_options.engine import cash_divs_to_proportional_divs
+
 
 class LSMCPricer:
-    """Longstaff–Schwartz Monte Carlo pricer for American calls under GBM with proportional discrete dividends.
+    """Longstaff–Schwartz Monte Carlo pricer for American calls under GBM with discrete dividends.
+
+    Project-wide convention: dividends are specified as cash amounts in spot currency:
+        divs[t] = (D_mean, D_std)
+    This pricer converts them internally to the proportional form used by the simulation.
 
     Usage:
         pr = LSMCPricer(S0, r, q, divs, vol, seed=42)
@@ -18,7 +24,8 @@ class LSMCPricer:
         self.S0 = S0
         self.r = r
         self.q = q
-        self.divs = divs
+        # Convert once to the internal proportional form expected by the simulation code.
+        self.divs = cash_divs_to_proportional_divs(self.S0, self.r, self.q, divs)
         self.vol = vol
         self.rng = np.random.default_rng(seed)
 

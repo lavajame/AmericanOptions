@@ -4,8 +4,8 @@ import numpy as np
 from american_options import GBMCHF
 from american_options.engine import COSPricer
 
-# Setup with dividends at exact times
-divs = {0.25: (0.02, 0.0), 0.75: (0.02, 0.0)}  # 2% proportional dividends
+# Setup with dividends at exact times (cash amounts)
+divs = {0.25: (2.0, 0.0), 0.75: (2.0, 0.0)}  # $2 cash dividends
 model = GBMCHF(S0=100, r=0.05, q=0.02, divs=divs, params={'vol': 0.2})
 pricer = COSPricer(model, N=128, L=8.0)
 
@@ -15,7 +15,7 @@ amer, euro, traj = pricer.american_price(K, T=1.0, steps=80, return_european=Tru
 print("DIVIDEND BEHAVIOR VALIDATION")
 print("=" * 60)
 print(f"Strike K={K[0]}, Spot S0={model.S0}")
-print(f"Dividends: 2% at t=0.25 and t=0.75\n")
+print(f"Dividends: $2 at t=0.25 and t=0.75\n")
 
 # Check behavior at dividend dates
 print("Prices BEFORE dividend ex-dates:")

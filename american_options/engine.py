@@ -21,29 +21,121 @@ import scipy.optimize as opt
 # 1. Helpers – dividends & forward
 # --------------------------------------------------------------------------- #
 
+def cash_divs_to_proportional_divs(
+    S0: float,
+    r: float,
+    q: float,
+    divs_cash: Dict[float, Tuple[float, float]],
+) -> Dict[float, Tuple[float, float]]:
+    """Convert cash discrete dividends into internal proportional-dividend parameters.
+
+    External project-wide convention (cash dividends):
+        divs_cash[t] = (D_mean, D_std)
+    where D_* are in *spot currency* paid at ex-div time t.
+
+    Internal convention used by COS/LSMC/FDM code paths:
+        divs_prop[t] = (m_mean, std_log)
+    with multiplicative factor applied at ex-div:
+        ln D_factor = ln(1-m_mean) - 0.5*std_log^2 + std_log * Z
+    so E[D_factor] = (1-m_mean).
+
+    We approximate a cash dividend as a proportional drop relative to the *expected* pre-div forward:
+        m_mean ≈ D_mean / E[S_{t-}]
+        Var[D_factor] ≈ (D_std / E[S_{t-}])^2
+    and match this variance by choosing std_log via the lognormal moment relation.
+
+    Note: this is an approximation (cash dividends are additive in reality).
+    """
+    if not divs_cash:
+        return {}
+
+    # Sort by time; build expected pre-div level recursively using mean impacts.
+    items = [(float(t), float(Dm), float(Ds)) for t, (Dm, Ds) in divs_cash.items()]
+    items.sort(key=lambda z: z[0])
+
+    divs_prop: Dict[float, Tuple[float, float]] = {}
+    mean_factor = 1.0
+    for t, D_mean, D_std in items:
+        if t <= 0.0:
+            continue
+        if D_mean < 0.0 or D_std < 0.0:
+            raise ValueError("Cash dividends require non-negative mean/std")
+
+        expected_pre = float(S0) * float(np.exp((r - q) * t)) * float(mean_factor)
+        if expected_pre <= 0.0:
+            raise ValueError("Invalid expected pre-div level while converting dividends")
+
+        m_mean = float(D_mean) / expected_pre
+        if m_mean >= 1.0:
+            raise ValueError(f"Cash dividend too large at t={t}: D_mean={D_mean} vs E_pre={expected_pre}")
+        if m_mean < 0.0:
+            raise ValueError("Cash dividend mean cannot imply negative proportional drop")
+
+        one_minus_m = max(1.0 - m_mean, 1e-12)
+        rel_std = float(D_std) / expected_pre
+
+        if rel_std <= 0.0:
+            std_log = 0.0
+        else:
+            # For X ~ LogNormal with mean = mu_x and log-std = s:
+            # Var[X] = (exp(s^2) - 1) * mu_x^2
+            # Here mu_x := E[D_factor] = (1-m_mean) and we want Var[D_factor] ≈ rel_std^2.
+            ratio = (rel_std * rel_std) / (one_minus_m * one_minus_m)
+            std_log = float(np.sqrt(np.log(1.0 + max(ratio, 0.0))))
+
+        divs_prop[t] = (m_mean, std_log)
+        mean_factor *= one_minus_m
+
+    return divs_prop
+
 def _dividend_adjustment(T: float, divs: Dict[float, Tuple[float, float]]) -> Tuple[float, np.ndarray]:
     """
-    Return the cumulative log product of (1 - m) for dividends up to T and an array of (mean, var) pairs.
-    For proportional dividends m at times t<=T, the spot is multiplied by (1 - m) at ex-div.
-    We use sum_log = Σ ln(1 - m) for exact multiplicative effect.
+        Return the cumulative log product adjustment and an array of (mean, var) pairs.
+
+        Internal dividend convention (proportional lognormal factor):
+        - Each dividend event at time t has mean proportional drop `m` and a log-factor uncertainty `std_log`.
+        - We model the dividend multiplicative factor as:
+                ln D = ln(1-m) - 0.5 * std^2 + std * Z,  Z ~ N(0,1)
+            so that E[D] = (1-m) while Var[ln D] = std^2.
+
+        We return:
+        - sum_log = Σ (ln(1-m) - 0.5*std^2) for t<=T
+        - params = [(m, std^2), ...] for t<=T
     """
     sum_log = 0.0
     params = []
     for t, (m, std) in divs.items():
         if t <= T:
-            sum_log += np.log(max(1.0 - m, 1e-12))
-            params.append((m, std ** 2))
+                        var = float(std) ** 2
+                        sum_log += np.log(max(1.0 - m, 1e-12)) - 0.5 * var
+                        params.append((m, var))
     return sum_log, np.array(params)
+
+
+def _forward_price_from_prop_divs(S0: float, r: float, q: float, T: float,
+                                 divs_prop: Dict[float, Tuple[float, float]]) -> float:
+    """Internal forward using internal proportional dividends."""
+    sum_log, div_params = _dividend_adjustment(T, divs_prop)
+    var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
+    # E[S_T] = S0 * exp((r-q)T) * Π E[D_factor]. With our convention E[D_factor]=(1-m),
+    # which equals exp(sum_log + 0.5*var_div) since sum_log includes -0.5*var_div.
+    return S0 * np.exp((r - q) * T + sum_log + 0.5 * var_div)
 
 
 def forward_price(S0: float, r: float, q: float, T: float,
                   divs: Dict[float, Tuple[float, float]]) -> float:
     """
-    Risk‑neutral forward with proportional dividends: F = S0 * exp((r - q) * T) * Π(1 - m).
-    We compute Π(1 - m) via exp(Σ ln(1 - m)).
+    Risk‑neutral forward under the project-wide *cash dividend* convention.
+
+    divs[t] = (D_mean, D_std) in spot currency.
+
+    We convert cash dividends to internal proportional parameters using the expected pre-div forward,
+    then compute:
+        F ≈ S0 * exp((r - q) * T) * Π E[D_factor]
+    where E[D_factor] = (1 - m_mean).
     """
-    sum_log, _ = _dividend_adjustment(T, divs)
-    return S0 * np.exp((r - q) * T + sum_log)
+    divs_prop = cash_divs_to_proportional_divs(S0, r, q, divs)
+    return _forward_price_from_prop_divs(S0, r, q, T, divs_prop)
 
 
 def softmax(a: np.ndarray, b: np.ndarray, beta: float = 20.0) -> np.ndarray:
@@ -73,7 +165,9 @@ class CharacteristicFunction:
         self.S0 = S0
         self.r = r
         self.q = q
-        self.divs = divs
+        # Project-wide convention: `divs` are cash dividends (mean, std) in spot currency.
+        # Convert once at model construction to internal proportional parameters.
+        self.divs = cash_divs_to_proportional_divs(S0, r, q, divs)
         self.params = params
 
     def char_func(self, u: np.ndarray, T: float) -> np.ndarray:
@@ -196,10 +290,16 @@ class COSPricer:
         self.L = float(L)
         self.M = int(M) if M is not None else max(2 * self.N, 512)
 
-    def european_price(self, K: np.ndarray, T: float) -> np.ndarray:
-        """COS European pricing (calls) using the Fang–Oosterlee COS method.
+    def european_price(self, K: np.ndarray, T: float, is_call: bool = True) -> np.ndarray:
+        """COS European pricing using the Fang–Oosterlee COS method.
 
         Vectorized over strikes K.
+
+        Notes
+        -----
+        - When ``is_call=True`` prices calls with payoff ``max(S_T - K, 0)``.
+        - When ``is_call=False`` prices puts with payoff ``max(K - S_T, 0)`` directly
+          (not via put-call parity).
         """
         K = np.atleast_1d(K).astype(float)
         # COS truncation domain from cumulants
@@ -215,7 +315,7 @@ class COSPricer:
             sum_log, div_params = _dividend_adjustment(T, self.model.divs)
             var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
             var = float(self.model._var2(T) + var_div)
-            F = forward_price(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
+            F = _forward_price_from_prop_divs(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
             mu = float(np.log(F) - 0.5 * var)
             width = self.L * np.sqrt(max(var, 1e-16))
             a, b = mu - width, mu + width
@@ -229,11 +329,17 @@ class COSPricer:
         phi = self.model.char_func(u.flatten(), T).reshape((N,))
         re_phi = np.real(phi.reshape((-1, 1)) * np.exp(-1j * u * a))
 
-        # Payoff coefficients for call: f(x)=max(exp(x)-K,0), integrate over [c, d] with c=ln K, d=b
-        c = np.log(K).reshape((1, -1))
-        c = np.clip(c, a, b)
-        d = b
+        # Payoff coefficients (call/put) in log-space over [a, b]
+        # Call: f(x)=max(exp(x)-K,0) on [ln K, b]
+        # Put:  f(x)=max(K-exp(x),0) on [a, ln K]
+        logK = np.clip(np.log(K), a, b).reshape((1, -1))
         K_reshaped = K.reshape((1, -1))
+        if is_call:
+            c = logK
+            d = b
+        else:
+            c = np.full_like(logK, a)
+            d = logK
 
         theta_c = u * (c - a)
         theta_d = u * (d - a)
@@ -259,7 +365,10 @@ class COSPricer:
             / denom
         )
 
-        Vk = (2.0 / (b - a)) * (chi - K_reshaped * psi)
+        if is_call:
+            Vk = (2.0 / (b - a)) * (chi - K_reshaped * psi)
+        else:
+            Vk = (2.0 / (b - a)) * (K_reshaped * psi - chi)
 
         # COS summation rule: k=0 term has weight 1/2
         weights = np.ones((N, 1))
@@ -279,13 +388,32 @@ class COSPricer:
         N = self.N
         M = self.M
         prices = np.zeros_like(K)
-        euro_prices = self.european_price(K, T) if return_european else None # Note: european_price is for calls
+        euro_prices = None
+        if return_european:
+            euro_prices = self.european_price(K, T, is_call=is_call)
 
         trajectory_cache = [] if return_trajectory else None
         cont_trajectory_cache = [] if return_continuation_trajectory else None
 
-        # Put-Call Duality for American Calls with q > 0
-        if is_call and (float(self.model.q) > 0.0 or self.model.divs):
+        # For calls with no discrete dividends and non-positive continuous yield,
+        # early exercise is not optimal in standard models, so American == European.
+        # The numerical rollback can otherwise introduce small max-operator artifacts.
+        if is_call and (not self.model.divs) and float(self.model.q) <= 0.0 and not (return_trajectory or return_continuation_trajectory):
+            eu = self.european_price(K, T, is_call=True)
+            if return_european:
+                return eu, eu
+            return eu
+
+        # Put-Call Duality for American Calls with continuous yield only.
+        # Discrete dividends require explicit rollback mapping; do not use duality shortcut.
+        # Also, trajectory caching relies on running the full rollback, so skip the shortcut
+        # when any trajectory output is requested.
+        if (
+            is_call
+            and float(self.model.q) > 0.0
+            and not self.model.divs
+            and not (return_trajectory or return_continuation_trajectory)
+        ):
             # C(S0, K, r, q, T) = P(K, S0, q, r, T) under dual measure
             # We price a put with strike = S0, spot = K, r_dual = q, q_dual = r
             dual_prices = np.zeros_like(K)
@@ -300,6 +428,11 @@ class COSPricer:
             if return_european:
                 return dual_prices, euro_prices
             return dual_prices
+
+        # With discrete dividends, parity-based call rollback is fragile and can create
+        # discontinuities near ex-div dates (especially when the horizon changes and
+        # a dividend moves close to t=0). In that case, price calls directly.
+        direct_call_with_divs = bool(is_call) and bool(self.model.divs)
 
         # Truncation range for entire horizon T
         exp_divs, div_params = _dividend_adjustment(T, self.model.divs)
@@ -316,7 +449,7 @@ class COSPricer:
                 is_cgmy = False
             VAR_TRUNC = 4.0 if is_cgmy else 10.0
         var_trunc = min(var, VAR_TRUNC)
-        F = forward_price(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
+        F = _forward_price_from_prop_divs(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
         mu = np.log(F) - 0.5 * var_trunc
         a = mu - self.L * np.sqrt(max(var_trunc, 1e-16))
         b = mu + self.L * np.sqrt(max(var_trunc, 1e-16))
@@ -331,12 +464,36 @@ class COSPricer:
         sin_k_x = np.sin(k * np.pi * (x_grid - a) / (b - a))  # shape (N, M)
         u = (k * np.pi / (b - a)).flatten()
 
-        # Time step and dividend steps (forward indices)
-        dt = T / steps if steps > 0 else T
-        div_steps = {}
-        for t_div, (m, _) in self.model.divs.items():
-            if 0.0 < t_div <= T and dt > 0:
-                div_steps[int(round(t_div / dt))] = m
+        # Build a rollback time grid that includes dividend times exactly.
+        #
+        # Previous behavior snapped dividends to an integer index via round(t_div / dt).
+        # When this routine is called repeatedly for slightly different horizons (e.g. tau=T-t
+        # in diagnostics), dt changes slightly and the rounding can jump by 1, creating visible
+        # spikes/discontinuities around ex-div dates.
+        #
+        # Here we instead split the grid at each dividend time, then sub-step each interval.
+        # This makes the dividend mapping occur at a deterministic time boundary.
+        if steps <= 0:
+            t_steps = np.array([0.0, float(T)])
+            dt_nominal = float(T)
+        else:
+            dt_nominal = float(T) / float(steps)
+            div_times = sorted([float(t) for t in self.model.divs.keys() if 0.0 < float(t) <= float(T)])
+            # Interval boundaries
+            t_knots = [0.0] + div_times + [float(T)]
+            t_steps_list = [0.0]
+            for t0, t1 in zip(t_knots[:-1], t_knots[1:]):
+                interval = float(t1) - float(t0)
+                if interval <= 0.0:
+                    continue
+                n_seg = max(1, int(round(interval / dt_nominal)))
+                seg = t0 + interval * (np.arange(1, n_seg + 1, dtype=float) / float(n_seg))
+                t_steps_list.extend(seg.tolist())
+            t_steps = np.array(t_steps_list, dtype=float)
+
+        # Dividend lookup with tolerance (times should be present in t_steps, but guard float noise).
+        div_time_m = [(float(t_div), float(m)) for t_div, (m, _) in self.model.divs.items() if 0.0 < float(t_div) <= float(T)]
+        div_tol = max(1e-12, 1e-10 * dt_nominal)
 
         # Endpoint trapezoidal weights for projection
         w = np.ones_like(x_grid)
@@ -345,16 +502,17 @@ class COSPricer:
 
         for j, Kval in enumerate(K):
             # Terminal payoff
-            if is_call:
-                # For calls, we use the parity-based rollback on PUT coefficients for stability
-                V_grid = np.maximum(Kval - S_grid, 0.0)
+            if direct_call_with_divs:
+                V_grid = np.maximum(S_grid - Kval, 0.0)
             else:
-                # For puts, we price directly
+                # Puts are priced directly. Calls without discrete dividends use a parity-based
+                # rollback on put coefficients for stability.
                 V_grid = np.maximum(Kval - S_grid, 0.0)
             
             coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_grid * w)) * dx
 
-            for n in range(steps):
+            for step_idx in range(len(t_steps) - 1, 0, -1):
+                dt = float(t_steps[step_idx] - t_steps[step_idx - 1])
                 phi_dt = self.model.increment_char(u, dt)
                 coeffs_mod = coeffs.copy()
                 coeffs_mod[0] *= 0.5
@@ -370,15 +528,29 @@ class COSPricer:
                 cont *= np.exp(-self.model.r * dt)
 
                 # Dividend mapping
-                m = div_steps.get(steps - n - 1, None)
-                if m is not None and m > 0:
-                    shift = np.log(1.0 - m)
-                    cont = np.interp(x_grid, x_grid + shift, cont, left=0.0, right=cont[-1] if not is_call else 0.0)
+                t_current = float(t_steps[step_idx - 1])
+                for t_div, m_div in div_time_m:
+                    if abs(t_div - t_current) <= div_tol and m_div > 0.0:
+                        shift = np.log(1.0 - m_div)
+                        # Correct mapping for proportional discrete dividends:
+                        # V_pre(x) = V_post(x + log(1-m))
+                        cont = np.interp(x_grid + shift, x_grid, cont, left=cont[0], right=0.0)
+                        break
 
-                remaining_tau = (n + 1) * dt
-                t_current = T - remaining_tau
+                remaining_tau = float(T) - t_current
                 
-                if is_call:
+                if direct_call_with_divs:
+                    intrinsic = S_grid - Kval
+                    if use_softmax:
+                        xdiff = beta * (intrinsic - cont)
+                        m_stable = np.maximum(0.0, xdiff)
+                        V_prev = cont + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
+                    else:
+                        V_prev = np.maximum(intrinsic, cont)
+                    V_prev = np.maximum(V_prev, 0.0)
+                    V_prev_call = V_prev
+
+                elif is_call:
                     # Convert put-continuation to call-continuation via parity
                     sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
                     sum_log_up_to_t, _ = _dividend_adjustment(t_current, self.model.divs)
@@ -411,19 +583,32 @@ class COSPricer:
                         V_prev = np.maximum(intrinsic, cont)
                     V_prev = np.maximum(V_prev, 0.0)
 
-                coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_prev * w)) * dx
-
-                # Cache trajectories
+                # Cache trajectories at S0 for first strike only
                 if (return_trajectory or return_continuation_trajectory) and j == 0:
-                    val_at_s0 = float(np.interp(np.log(self.model.S0), x_grid, V_prev_call if is_call else V_prev))
+                    x0 = float(np.log(self.model.S0))
+                    if return_continuation_trajectory:
+                        if direct_call_with_divs:
+                            cont_at_s0 = float(np.interp(x0, x_grid, cont))
+                        else:
+                            cont_at_s0 = float(np.interp(x0, x_grid, cont_call if is_call else cont))
+                        cont_trajectory_cache.append((t_current, cont_at_s0))
                     if return_trajectory:
-                        trajectory_cache.append((t_current, val_at_s0))
+                        if direct_call_with_divs:
+                            exercise_at_s0 = float(np.interp(x0, x_grid, V_prev_call))
+                        else:
+                            exercise_at_s0 = float(np.interp(x0, x_grid, V_prev_call if is_call else V_prev))
+                        trajectory_cache.append((t_current, exercise_at_s0))
+
+                coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_prev * w)) * dx
 
             # Final value at t=0
             V0 = 0.5 * coeffs[0] * cos_k_x[0] + (coeffs[1:, None] * cos_k_x[1:]).sum(axis=0)
             val0 = float(np.interp(np.log(self.model.S0), x_grid, V0))
             
-            if is_call:
+            if direct_call_with_divs:
+                prices[j] = val0
+
+            elif is_call:
                 # Convert back to call price
                 sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
                 forward_adj = self.model.S0 * np.exp(-self.model.q * T + sum_log_total)
@@ -433,10 +618,18 @@ class COSPricer:
 
         if return_trajectory and trajectory_cache is not None:
             trajectory_cache.sort(key=lambda z: z[0])
-        
+
+        if return_continuation_trajectory and cont_trajectory_cache is not None:
+            cont_trajectory_cache.sort(key=lambda z: z[0])
+
+        out = [prices]
         if return_european:
-            return prices, euro_prices
-        return prices
+            out.append(euro_prices)
+        if return_trajectory:
+            out.append(trajectory_cache)
+        if return_continuation_trajectory:
+            out.append(cont_trajectory_cache)
+        return out[0] if len(out) == 1 else tuple(out)
 
     # ----------------------------------------------------------------------- #
     # 2.5. Helper – variance over [0,T] for COS truncation
@@ -481,9 +674,10 @@ class GBMCHF(CharacteristicFunction):
         return np.exp(1j * u * mu_term - 0.5 * (u ** 2) * var)
 
     def cumulants(self, T: float) -> Tuple[float, float, float]:
-        sum_log, _ = _dividend_adjustment(T, self.divs)
+        sum_log, div_params = _dividend_adjustment(T, self.divs)
+        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
         vol = float(self.params["vol"])
-        c2 = (vol ** 2) * T
+        c2 = (vol ** 2) * T + var_div
         c1 = np.log(self.S0) + (self.r - self.q) * T + sum_log - 0.5 * c2
         c4 = 0.0
         return float(c1), float(c2), float(c4)
@@ -512,7 +706,9 @@ class MertonCHF(CharacteristicFunction):
         # jump characteristic for additive log-jump: E[e^{i u Y}] = exp(i u muJ - 0.5 u^2 sigmaJ^2)
         phi_jump = np.exp(1j * u * muJ - 0.5 * (u ** 2) * sigmaJ ** 2)
         phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * (vol ** 2) * T + lam * T * (phi_jump - 1.0))
-        # Note: var used for truncation only (above)
+        # Add dividend uncertainty as an independent Gaussian log-factor.
+        if var_div > 0.0:
+            phi *= np.exp(-0.5 * (u ** 2) * var_div)
         return phi
 
     def increment_char(self, u: np.ndarray, dt: float) -> np.ndarray:
@@ -573,6 +769,9 @@ class KouCHF(CharacteristicFunction):
         var_jumps = lam * T * (p * 2.0 / (eta1 ** 2) + (1 - p) * 2.0 / (eta2 ** 2))
         var = (vol ** 2) * T + var_jumps + var_div
         phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * (vol ** 2) * T + lam * T * (phi_jump - 1.0))
+        # Add dividend uncertainty as an independent Gaussian log-factor.
+        if var_div > 0.0:
+            phi *= np.exp(-0.5 * (u ** 2) * var_div)
         return phi
 
     def _var2(self, T: float) -> float:
@@ -627,6 +826,9 @@ class VGCHF(CharacteristicFunction):
         mu = np.log(self.S0) + (self.r - self.q + omega) * T + exp_divs
         phi_base = (1.0 - 1j * theta * nu * u + 0.5 * (sigma ** 2) * (nu) * (u ** 2)) ** (-T / nu)
         phi = np.exp(1j * u * mu) * phi_base
+        # Add dividend uncertainty as an independent Gaussian log-factor.
+        if var_div > 0.0:
+            phi *= np.exp(-0.5 * (u ** 2) * var_div)
         return phi
 
     def _var2(self, T: float) -> float:
@@ -723,6 +925,9 @@ class CGMYCHF(CharacteristicFunction):
         exponent = 1j * u * mu_base + (psi_vals - 1j * u * psi_minus_i) * T
         
         phi = np.exp(exponent)
+        # Add dividend uncertainty as an independent Gaussian log-factor.
+        if var_div > 0.0:
+            phi *= np.exp(-0.5 * (u ** 2) * var_div)
         return phi
 
     def _var2(self, T: float) -> float:
