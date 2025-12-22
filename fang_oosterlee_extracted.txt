@@ -1,0 +1,2379 @@
+Fang & Oosterlee American (extracted)
+Source: fang_oosterlee_american.pdf
+
+Included pages (heuristic): 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36
+
+--- page 1 ---
+Numer. Math. (2009) 114:27–62
+DOI 10.1007/s00211-009-0252-4
+NumerischeMathematik
+Pricing early-exercise and discrete barrier options
+by fourier-cosine series expansions
+F. Fang · C. W. Oosterlee
+Received: 19 June 2008 / Revised: 22 May 2009 / Published online: 20 August 2009
+© The Author(s) 2009. This article is published with open access at Springerlink.com
+Abstract We present a pricing method based on Fourier-cosine expansions for
+early-exercise and discretely-monitored barrier options. The method works well for
+exponential Lévy asset price models. The error convergence is exponential for pro-
+cesses characterized by very smooth (C
+∞[a,b]∈ R) transitional probability density
+functions. The computational complexity is O((M − 1)N log N) with N a (small)
+number of terms from the series expansion, and M, the number of early-exercise/mon-
+itoring dates. This paper is the follow-up of (Fang and Oosterlee in SIAM J Sci Com-
+put 31(2):826–848, 2008) in which we presented the impressive performance of the
+Fourier-cosine series method for European options.
+Mathematics Subject Classiﬁcation (2000) 65D30 · 91B24 · 65T40
+1 Introduction
+Within stock option pricing applications, interesting numerical mathematics questions
+can be found in product pricing and in calibration. Whereas the former topic requires
+especially robust numerical techniques, the latter also relies on efﬁciency and speed
+of computation.
+Numerical integration methods, based on a transformation to the Fourier domain
+(the so-called transform methods), are traditionally very efﬁcient, due to the availability
+F. Fang ( B)
+Delft Institute of Applied Mathematics, Delft University of Technology, Delft, The Netherlands
+e-mail: f.fang@ewi.tudelft.nl
+C. W. Oosterlee
+CWI, Centrum Wiskunde and Informatica, Amsterdam, The Netherlands
+e-mail: c.w.oosterlee@cwi.nl
+123
+
+--- page 2 ---
+28 F. Fang, C. W. Oosterlee
+of the Fast Fourier Transform (FFT) [ 11,28], for the pricing of basic European prod-
+ucts, and thus for calibration purposes. These methods can readily be applied to solving
+problems under various asset price dynamics, for which the characteristic function (i.e.,
+the Fourier transform of the probability density function) is available. This is the case
+for models from the class of regular afﬁne processes of [ 16], which also includes the
+exponentially afﬁne jump-diffusion class of [ 15], and, in particular, the exponential
+Lévy models.
+Recently, transform methods have been generalized to solving somewhat more
+complicated option contracts, like Bermudan, American or barrier options, see, for
+example, [3,4,14,17,23,25,31,32]. These exotic options, still with basic features, are
+used in the ﬁnancial industry as building blocks for more complicated products. A
+natural aim for the near future with these transform methods is to calibrate to these
+exotic products and to price the huge portfolios (at the end of a trading day) very fast.
+Next to FFT-based methods, new techniques based on the Fast Gauss or the Hil-
+bert Transform have been introduced for this purpose [ 7,8,19]. In this paper, we will
+also generalize a transform method to pricing Bermudan, American and discretely-
+monitored barrier options. It is the method based on Fourier-cosine series expansions,
+called the COS method, introduced by us in [ 18], where we showed that it was highly
+efﬁcient for pricing European options. The underlying idea is to replace the transi-
+tional probability density function by its Fourier-cosine series expansion, which has
+an elegant relation to the conditional characteristic function. For many underlying
+asset price models, the method is remarkably fast and the density function can be
+recovered easily. Since a whole function of option values is obtained, the Greeks can
+be computed at almost no additional computational cost. Here, we will show that the
+COS method can also price the early-exercise and barrier options with exponential
+convergence under various Lévy models.
+The methods are, for these option contracts, in competition with the methods that
+require the solution of discrete partial (integro-) differential equation-based operators
+(PIDE) [ 9,35]. PIDE-based methods are traditionally used since early-exercise and
+the exotic features can often be interpreted as special payoffs or boundary conditions.
+They represent the state of the art for pricing options under the local volatility process.
+Generally speaking, however, the computational process with PIDE is rather expen-
+sive, especially for the inﬁnite activity Lévy processes we are interested in, because
+they give rise to an integral in the PIDE with a weakly singular kernel [ 2,21,34].
+We will therefore compare our results with other highly efﬁcient transform meth-
+ods, i.e., with the Convolution (CONV) method [ 25], based on the FFT, which is
+one of the state-of-the-art methods for pricing Bermudan and American options. Its
+computational complexity for pricing a Bermudan option with M exercise dates is
+O((M − 1)N log
+2(N)), where N denotes the number of grid points used for numer-
+ical integration. Quadrature rule based techniques are, however, not of the highest
+efﬁciency when solving Fourier transformed integrals. As these integrands are highly
+oscillatory, a relatively ﬁne grid has to be used for satisfactory accuracy with the FFT.
+The COS method presented here requires a substantially smaller value of N.
+Especially for barrier options, another highly efﬁcient alternative method from [ 19]
+is based on the Hilbert transform. Its error convergence is exponential for models with
+rapidly decaying characteristic functions, also with a computational complexity of
+123
+
+--- page 3 ---
+Pricing early-exercise and discrete barrier options 29
+O((M − 1)N log2 N) for a barrier option with M monitoring dates. This method is,
+however, not applicable for Bermudan options.
+The paper is organized as follows. In Sect. 2 the COS method for pricing
+Bermudan and barrier options is presented. The handling of the discretely monitored
+barrier options is discussed in particular in Sect. 2.4. Error analysis is performed in
+Sect. 3. Numerical results are presented in Sect. 4, where we focus on option pricing
+under exponential Lévy processes, in particular under the CGMY [ 10] and the Normal
+Inverse Gaussian [ 5] processes.
+2 Pricing Bermudan and barrier options
+A Bermudan option can be exercised at pre-speciﬁed dates before maturity. The holder
+receives the exercise payoff when he/she exercises the option. Between two consecu-
+tive exercise dates the valuation process can be regarded as that for a European option,
+priced with the help of the risk-neutral valuation formula.
+Let t
+0 denote the initial time and T {t1,..., tM } be the collection of all exercise
+dates with /Delta1t := (tm − tm−1),t0 < t1 < ··· < tM = T . The pricing formula for a
+Bermudan option with M exercise dates then reads, for m = M, M − 1,..., 2:
+{ c(x,tm−1) = e−r/Delta1t ∫
+R v(y,tm ) f (y|x)dy ,
+v(x,tm−1) = max (g(x,tm−1),c(x,tm−1)),
+(1)
+followed by
+v(x,t0) = e−r/Delta1t
+∫
+R
+v(y,t1) f (y|x)dy . (2)
+Here x and y are state variables, deﬁned as the logarithm of the ratio of the asset price
+St over the strike price K ,
+x := ln(S(tm−1)/K ) and y := ln(S(tm)/K ),
+v(x,t), c(x,t) and g(x,t) are the option value, the continuation value and the payoff
+at time t, respectively. Note that for vanilla options, g(x,t) equals v(x, T ), with
+v(x, T ) =[ αK (ex − 1)]+,α =
+{ 1 for a call,
+−1 for a put.
+The probability density function of y given x under a risk-neutral measure is denoted
+by f (y|x) in ( 2), and r is the (deterministic) risk-neutral interest rate.
+Equations ( 1), and ( 2) can be efﬁciently evaluated by the COS method in [ 18],
+provided that the Fourier-cosine series coefﬁcients of v(y,tm ) are known.
+123
+
+--- page 4 ---
+30 F. Fang, C. W. Oosterlee
+2.1 The COS method
+The COS method is based on the insight that the Fourier-cosine series coefﬁcients of
+f (y|x) are closely related to its characteristic function.
+Since the density function, f (y|x), decays to zero rapidly as y →± ∞, we can
+truncate the inﬁnite integration range in the risk-neutral valuation formula without
+loosing significant accuracy. Suppose that we have, with [a,b]⊂ R,
+∫
+R\[a,b]
+f (y|x)dy < TOL, (3)
+for some given tolerance, TOL, then we can approximate c(x,tm−1) in ( 1)b y
+c1(x,tm−1) = e−r/Delta1t
+b∫
+a
+v(y,tm ) f (y|x)dy . (4)
+(The intermediate terms, ci , are used in the error analysis in Sect. 3.) As a second step,
+we replace the density function by its Fourier-cosine series expansion on [a,b],
+f (y|x) =
+∞∑ ′
+k=0
+Ak (x)cos
+(
+kπ y − a
+b − a
+)
+, (5)
+where
+∑ ′
+indicates that the ﬁrst term in the summation is multiplied by 1 /2. The
+series coefﬁcients {Ak (x)}∞
+k=0 are deﬁned by
+Ak (x) := 2
+b − a
+b∫
+a
+f (y|x)cos
+(
+kπ y − a
+b − a
+)
+dy . (6)
+Interchanging the summation and integration operators yields
+c1(x,tm−1) = 1
+2 (b − a)e−r/Delta1t
+∞∑ ′
+k=0
+Ak (x)Vk (tm), (7)
+with Vk (tm) the Fourier-cosine series coefﬁcients of v(y,tm ) on [a,b], i.e.
+Vk (tm) := 2
+b − a
+b∫
+a
+v(y,tm )cos
+(
+kπ y − a
+b − a
+)
+dy . (8)
+123
+
+--- page 5 ---
+Pricing early-exercise and discrete barrier options 31
+Truncating the inﬁnite series gives
+c2(x,tm−1) = 1
+2 (b − a)e−r/Delta1t
+N−1∑ ′
+k=0
+Ak (x)Vk (tm). (9)
+As a third step, we use the relation between Ak (x) and the conditional characteristic
+function, φ(ω; x), deﬁned as
+φ(ω; x) :=
+∫
+R
+f (y|x)eiωydy . (10)
+Coefﬁcients Ak (x) can be written as
+Ak (x) = 2
+b − a Re
+⎧
+⎨
+⎩e−ik π a
+b−a
+b∫
+a
+ei kπ
+b−a y f (y|x)dy
+⎫
+⎬
+⎭. (11)
+where Re {·} denotes taking the real part of the input argument. With ( 3), the ﬁnite
+integration in ( 11) can be approximated by
+b∫
+a
+ei kπ
+b−a y f (y|x)dy ≈
+∫
+R
+ei kπ
+b−a y f (y|x)dy =: φ
+( kπ
+b − a ; x
+)
+.
+As a result, Ak (x) can be approximated by Fk (x) with
+Fk (x) := 2
+b − a Re
+{
+φ
+( kπ
+b − a ; x
+)
+e−ik π a
+b−a
+}
+. (12)
+Replacing Ak (x) in (9)b y Fk (x) gives the COS formula for pricing European options
+for different underlying processes:
+ˆc(x,tm−1) := e−r/Delta1t
+N−1∑ ′
+k=0
+Re
+{
+φ
+( kπ
+b − a ; x
+)
+e−ik π a
+b−a
+}
+Vk (tm). (13)
+Here the function ˆc(x,tm−1) represents the approximation of the continuation value
+c(x,tm−1). An error analysis justifying the different approximations for European
+options was presented in [ 18] and is summarized in Sect. 3.
+For exponential Lévy processes, formula ( 13) can be simpliﬁed to
+ˆc(x,tm−1) = e−r/Delta1t
+N−1∑ ′
+k=0
+Re
+{
+ϕlevy
+( kπ
+b − a
+)
+eik π x−a
+b−a
+}
+Vk (tm), (14)
+where ϕlevy(ω) := φlevy(ω;0),s e e[ 18]. Using this, we can also approximate v(x,t0)
+in ( 2)b y
+123
+
+--- page 6 ---
+32 F. Fang, C. W. Oosterlee
+ˆv(x,t0) = e−r/Delta1t
+N−1∑ ′
+k=0
+Re
+{
+ϕlevy
+( kπ
+b − a
+)
+eik π x−a
+b−a
+}
+Vk (t1), (15)
+provided that the series coefﬁcients, Vk (t1), are known. We will show that the Vk (tm),
+k = 0,1,..., N − 1, can be recovered from Vj (tm+1), j = 0,1,..., N − 1.
+2.2 Pricing Bermudan options
+The idea of pricing Bermudan options is to compute Vk (t1), the cosine coefﬁcients
+of the option value at time point t1, and insert it into ( 15), to obtain the value of the
+option. The main contribution of this section is the derivation of an induction formula
+for V
+k (t1).
+The integral in the definition of Vk (tm) in (8) can be split into two parts, if we deter-
+mine the early-exercise point, x∗
+m , at time tm, which is the point where the continuation
+value equals the payoff, i.e., c(x∗
+m ,tm ) = g(x∗
+m,tm ).
+Once we have x∗
+m , we can split the integral that deﬁnes Vk (tm ) into two parts: One
+on the interval [a, x∗
+m ] and the other on (x∗
+m,b], i.e.
+Vk (tm) =
+{ Ck (a, x∗
+m ,tm ) + Gk (x∗
+m ,b), for a call,
+Gk (a, x∗
+m ) + Ck (x∗
+m ,b,tm ), for a put,
+(16)
+for m = M − 1, M − 2,..., 1, and
+Vk (tM ) =
+{ Gk (0,b), for a call
+Gk (a,0), for a put,
+(17)
+whereby
+Gk (x1, x2) := 2
+b − a
+x2∫
+x1
+g(x,tm )cos
+(
+kπ x − a
+b − a
+)
+dx . (18)
+and
+Ck (x1, x2,tm ) := 2
+b − a
+x2∫
+x1
+c(x,tm )cos
+(
+kπ x − a
+b − a
+)
+dx . (19)
+Remark 2.1 (Newton’s method) Since the numerical approximation for c(x,tm ),
+denoted by ˆc(x,tm ),i n( 14) is a semi-analytic formula which returns a numerical
+approximation of c(x,tm ) on the whole support of x, we can easily ﬁnd the deriv-
+atives of ˆc(x,tm ) w.r.t. x, and can therefore employ Newton’s method to deter-
+mine x∗
+m . Note that, on each time lattice, there is at most one point which satisﬁes
+123
+
+--- page 7 ---
+Pricing early-exercise and discrete barrier options 33
+ˆc(x,tm ) − g(x,tm ) = 0, for the option problems considered here. 1 If x∗
+m is not in
+[a,b], it is set equal to the nearest boundary point.
+Result 2.1 The Gk (x1, x2) in (18) can be determined analytically.
+Proof With g(x,tm ) ≡[ ±K (1 − ex )]+, it follows for a put, with x2 ≤ 0, that
+Gk (x1, x2) = 2
+b − a
+x2∫
+x1
+K (1 − ex )cos
+(
+kπ x − a
+b − a
+)
+dx , (20)
+and for a call, with x1 ≥ 0, that
+Gk (x1, x2) = 2
+b − a
+x2∫
+x1
+K (ex − 1)cos
+(
+kπ x − a
+b − a
+)
+dx , (21)
+The fact that x∗
+m ≤ 0, for put options, and x∗
+m ≥ 0, for call options, ∀t ∈ T ,g i v e s
+Gk (x1, x2) = 2
+b − a αK [χk (x1, x2) − ψk (x1, x2)] ,α =
+{ 1 for a call,
+−1 for a put, (22)
+with
+χk (x1, x2) :=
+x2∫
+x1
+ex cos
+(
+kπ x − a
+b − a
+)
+dx , (23)
+ψk (x1, x2) :=
+x2∫
+x1
+cos
+(
+kπ x − a
+b − a
+)
+dx . (24)
+These integrals admit the following analytic solutions:
+χk (x1, x2) = 1
+1 +
+(
+kπ
+b−a
+)2
+[
+cos
+(
+kπ x2 − a
+b − a
+)
+ex2 − cos
+(
+kπ x1 − a
+b − a
+)
+ex1
++ kπ
+b − a sin
+(
+kπ x2 − a
+b − a
+)
+ex2 − kπ
+b − a sin
+(
+kπ x1 − a
+b − a
+)
+ex1
+]
+,
+ψk (x1, x2) =
+⎧
+⎪⎨
+⎪⎩
+[
+sin
+(
+kπ x2−a
+b−a
+)
+− sin
+(
+kπ x1−a
+b−a
+)]
+b−a
+kπ k ̸= 0,
+(d − c) k = 0.
+(25)
+⊓⊔
+1 Generalizations for more early-exercise points are easily determined.
+123
+
+--- page 8 ---
+34 F. Fang, C. W. Oosterlee
+We now derive the formulas for the Fourier cosine coefﬁcients of the option values,
+Vj (tm) with j = 0,1,..., N − 1 and m = 1,2,..., M.
+At time tM , these coefﬁcients, Vj (tM ), are exact, see Eq. ( 17). At time tM−1,f r o m
+COS formula ( 14) we obtain approximation ˆc(x,tM−1), the continuation value at
+tM−1, which is inserted into ( 19). Interchanging summation and integration gives the
+following coefﬁcients, ˆC:
+ˆCk (x1, x2,tM−1) = e−r/Delta1t Re
+⎧
+⎨
+⎩
+N−1∑ ′
+j=0
+ϕlevy
+( jπ
+b − a
+)
+Vj (tM ) · Mk,j (x1, x2)
+⎫
+⎬
+⎭, (26)
+with the coefﬁcients Mk,j (x1, x2) deﬁned as
+Mk,j (x1, x2) := 2
+b − a
+x2∫
+x1
+eij π x−a
+b−a cos
+(
+kπ x − a
+b − a
+)
+dx , (27)
+and i = √−1 being the imaginary unit.
+For time points tm , m = M − 2, M − 3,..., 1, we can deﬁne
+ˆCk (x1, x2,tm ) := e−r/Delta1t Re
+⎧
+⎨
+⎩
+N−1∑ ′
+j=0
+ϕlevy
+( jπ
+b − a
+)
+ˆVj (tm+1) · Mk,j (x1, x2)
+⎫
+⎬
+⎭, (28)
+which is the result of replacing Vj (tm+1) in the definition of Ck (x1, x2,tm ) by its
+numerical approximation ˆVj (tm+1).
+Replacing Ck in ( 16)b y ˆCk gives us the numerical approximation of the Fourier
+cosine coefﬁcients of the option values at times tm, m = 1,2,..., M − 1. In vector
+form, it reads
+ˆV(tm) =
+{ ˆC(a, x∗
+m ,tm ) + G(x∗
+m ,b), for a call ,
+ˆC(x∗
+m ,b,tm ) + G(a, x∗
+m ), for a put . (29)
+with
+ˆC(x1, x2,tm ) =
+{ e−r/Delta1t Re {M(x1, x2)/Lambda1} V(tM ), m = M − 1,
+e−r/Delta1t Re {M(x1, x2)/Lambda1} ˆV(tm+1), m = 1,2,..., M − 2. (30)
+where we use bold-faced letters to denote vectors, e.g. V(tM ) is the vector (V0(tM ),
+V1(tM ) ,..., VN−1(tM ))T .“ M /Lambda1” denotes a matrix-matrix multiplication with M
+being a matrix with elements {Mk,j }N−1
+k,j=0 and /Lambda1a diagonal matrix with elements
+{ϕlevy( jπ
+b−a )}N−1
+j=0 .
+This matrix-vector product representation is useful for analyzing the convergence
+properties of Bermudan option values to their American counterparts (with M →∞ ),
+123
+
+--- page 9 ---
+Pricing early-exercise and discrete barrier options 35
+in Appendix A. It should, however, not be employed to determine the coefﬁcients, since
+these matrix-vector product costs O(N2) operations and is thus expensive.
+In Sect. 2.3, we will present an efﬁcient algorithm for the computation of ˆV(tm),
+with complexity O(N log2(N)), based on the FFT algorithm.
+We ﬁrst summarize the algorithm for pricing Bermudan options:
+Algorithm 1: Pricing Bermudan options with the COS method.
+Initialization:F o r k = 0,1,..., N − 1,
+• Vk (tM ) = Gk (0,b) for call options; Vk (tM ) = Gk (a,0) for put options;
+Main Loop to Recover ˆVk (tm):F o r m = M − 1t o1 ,
+• Determine early-exercise point x∗
+m by Newton’s method;
+• Compute ˆVk (tm) (with the help of the FFT algorithm).
+Final step: Reconstruct ˆv(x,t0) by inserting ˆVk (t1) into ( 15).
+Remark 2.2 (The Greeks) To compute the Greeks, one only needs to modify the ﬁnal
+step in Algorithm 1, from t1 to t0, as the Greeks can be approximated by
+ˆ/Delta1= e−r/Delta1t 2
+b − a
+N−1∑ ′
+k=0
+Re
+{{
+ϕ
+( kπ
+b − a
+)
+eik π x−a
+b−a
+ik π
+b − a
+}} ˆVk (t1)
+S0
+(31)
+and
+ˆ/Gamma1= e−r/Delta1t 2
+b−a
+N−1∑ ′
+k=0
+Re
+{{
+ϕ
+( kπ
+b − a
+)
+eik π x−a
+b−a
+[
+− ik π
+b − a +
+( ik π
+b − a
+) 2]}} ˆVk (t1)
+S2
+0
+.
+(32)
+2.3 Efﬁcient algorithm
+In the following we will develop an FFT-based algorithm for computing the matrix-
+vector product in ( 30). The main insight is that matrix M in (30) is a sum of a Hankel
+and a Toeplitz matrix.
+Theorem 2.1 ˆC(x1, x2,tm ) in (30) can be computed in O (N log2(N)) operations
+with the help of the Fast Fourier Transform (FFT) algorithm.
+Proof Replacing eiα = cos(α) + i sin(α) in the definition of Mk,j (x1, x2) in ( 27)
+gives the following representation:
+Mk,j (x1, x2) =− i
+π
+(
+Mc
+k,j (x1, x2) + Ms
+k,j (x1, x2)
+)
+, (33)
+123
+
+--- page 10 ---
+36 F. Fang, C. W. Oosterlee
+where
+Mc
+k,j :=
+⎧
+⎪⎪
+⎪
+⎪⎨
+⎪⎪
+⎪
+⎪
+⎩
+(x
+2 − x1)πi
+(b − a) k = j = 0,
+exp
+(
+i(j + k)(x2 − a)π
+b − a
+)
+− exp
+(
+i(j + k)(x1 − a)π
+b − a
+)
+j + k otherwise
+(34)
+and
+Ms
+k,j :=
+⎧
+⎪⎪
+⎪
+⎪
+⎨
+⎪⎪
+⎪
+⎪
+⎩
+(x
+2 − x1)πi
+b − a k = j,
+exp
+(
+i(j − k)(x2 − a)π
+b − a
+)
+− exp
+(
+i(j − k)(x1 − a)π
+b − a
+)
+j − k k ̸= j.
+(35)
+After inserting ( 33)i n t o( 26) and ( 28), we obtain a matrix-vector product representa-
+tion for ˆC(x1, x2,tm ), i.e.,
+ˆC(x1, x2,tm ) = e−r/Delta1t
+π Im {(Mc + Ms )u} , (36)
+where Im {·} denotes taking the imaginary part of the input argument, and
+u := {u j }N−1
+j=0 , u j := ϕ
+( jπ
+b − a
+)
+Vj (tm+1), u0 = 1
+2 ϕ (0) V0(tm+1). (37)
+The matrices
+Mc := {Mc
+k,j (x1, x2)}N−1
+k,j=0 and Ms := {Ms
+k,j (x1, x2)}N−1
+k,j=0
+have special structures, so that the FFT algorithm can be employed for the efﬁcient
+computation of matrix-vector products.
+In particular, matrix Mc is a Hankel matrix,
+Mc =
+⎡
+⎢⎢
+⎢
+⎢
+⎢⎣
+m
+0 m1 m2 ··· mN−1
+m1 m2 ··· ··· mN
+..
+.
+..
+.
+m
+N−2 mN−1 ··· m2N−3
+mN−1 ··· m2N−3 m2N−2
+⎤
+⎥⎥
+⎥
+⎥
+⎥⎦
+N×N
+(38)
+123
+
+--- page 11 ---
+Pricing early-exercise and discrete barrier options 37
+and Ms is a Toeplitz matrix,
+Ms =
+⎡
+⎢⎢
+⎢⎢⎢⎣
+m
+0 m1 ··· mN−2 mN−1
+m−1 m0 m1 ··· mN−2
+... ... ...
+m2−N ··· m−1 m0 m1
+m1−N m2−N ··· m−1 m0
+⎤
+⎥⎥
+⎥⎥⎥⎦
+N×N
+(39)
+with
+m j :=
+⎧
+⎪⎪
+⎨
+⎪⎪
+⎩
+(x
+2 − x1)π
+b − a ij = 0
+exp
+(
+ij (x2 − a)π
+b − a
+)
+− exp
+(
+ij (x1 − a)π
+b − a
+)
+j j ̸= 0
+(40)
+This concludes the proof. ⊓⊔
+The matrix-vector product, with these special matrices, can be transformed into a
+circular convolution. This is well-known for Toeplitz matrices, described in detail, for
+example, in [ 2]. The product Ms u is equal to the ﬁrst N elements of ms ⊛ us with
+the 2 N-vectors:
+ms =
+[
+m0,m−1,m−2,..., m1−N ,0,mN−1,mN−2,..., m1
+]T ,
+and us =[ u0,u1,..., uN−1,0,..., 0]T . For the Hankel matrix this is less known, so
+we formulate it in the following result:
+Result 2.2 The product Mcu is equal to the ﬁrst N elements of mc ⊛ uc, in reversed
+order, with the2N-vectors: mc =[ m2N−1,m2N−2,..., m1,m0]T and uc =[0,..., 0,
+u0,u1,..., uN−1]T .
+For the efﬁcient computation of Mcu, we need to construct the following circulant
+matrix, Mu,
+Mu =
+⎡
+⎢⎢⎢⎢
+⎢
+⎢
+⎢
+⎢⎢⎢
+⎢
+⎢
+⎢
+⎢⎣
+0 u
+N−1 uN−2 ··· ··· ··· 0
+00 uN−1 uN−2 ··· ··· 0
+... ... ... ...
+0 ··· 0 uN−1 uN−2 ··· u0
+u0 0 ··· 0 uN−1 ··· u1
+u1 u0 0 ··· 0 ··· u2
+... ... ... ...
+uN−2 ··· u0 0 ··· 0 uN−1
+uN−1 uN−2 ··· u0 0 ··· 0
+⎤
+⎥⎥⎥⎥
+⎥
+⎥
+⎥
+⎥⎥⎥
+⎥
+⎥
+⎥
+⎥⎦
+(2N)×(2N)
+. (41)
+Straightforward computation shows that the ﬁrst N elements of the product of uc and
+mc equal Mcu, in reversed order.
+123
+
+--- page 12 ---
+38 F. Fang, C. W. Oosterlee
+A circular convolution of two vectors is equal to the inverse discrete Fourier trans-
+form ( D−1) of the products of the forward DFTs, D, i.e.,
+x ⊛ y = D−1{D(x) · D(y)}.
+We now summarize the algorithm of computing ˆC(x1, x2,tm ) as follows:
+Algorithm 2: Computation of ˆC(x1, x2,tm ).
+1. Compute m j (x1, x2) for j = 0,1,..., N − 1u s i n g(40).
+2. Construct ms(x1, x2) and mc(x1, x2) using the properties of m j ’s.
+3. Compute u(tm ) using ( 37).
+4. Construct us by padding N zeros to u(tm).
+5. Msu = the ﬁrst N elements of D−1{ D(ms) · D(us) }.
+6. Mcu = reverse{ the ﬁrst N elements of D−1{ D(mc) · sgn · D(us) }}.
+7. ˆC(x1, x2,tm ) = e−r/Delta1t Im {Msu + Mcu} /π.
+Note that the operation D(us) is computed only once, and“reverse {x}” denotes an
+x-generated vector, whose elements are the same as those of x b u ts o r t e di nr e v e r s e d
+order.
+Remark 2.3 (Efﬁcient computation) It is worth mentioning that the computation of
+the exponentials takes significantly more computer clock cycles than additions or mul-
+tiplications. One can however beneﬁt from some special properties of the m j ’s, like
+m−j =− m j and, for j ̸= 0,
+m j+N =
+exp
+(
+iN (x2−a)π
+b−a
+)
+· exp
+(
+ij (x2−a)π
+b−a
+)
+−exp
+(
+iN (x1−a)π
+b−a
+)
+· exp
+(
+ij (x1−a)π
+b−a
+)
+j + N .
+So, in order to construct ms and mc, the factors exp (ij (x2−a)π
+b−a ) and exp (ij (x1−a)π
+b−a ),
+for j = 0,1,..., N − 1, should be computed only once.
+Also, the DFT of uc and of us need not be computed separately, as the shift property
+of DFTs gives D(uc) = sgn · D(us ) with sgn =[ 1,−1,1,−1,... ]T .
+Remark 2.4 (Overall computational complexity) Since the computation of Gk (x1, x2)
+is linear in N, the overall complexity of this recovery procedure is dominated by the
+computation of ˆC(x1, x2,tm ), whose complexity is O(N log2 N) with the FFT. As a
+result, the overall computational complexity for pricing a Bermudan option with M
+exercise dates is O((M − 1)N log2 N), as the work needed for the ﬁnal step, from t1
+to t0,i s O(N).
+Remark 2.5 (Use of FFT algorithm) In the main loop of the CONV method from [ 25],
+the FFT algorithm is required ﬁve times, the same as in the COS method presented
+above, and the length of the CONV input vectors is halved compared to the COS
+method. Therefore, the CONV method would be approximately twice as fast, if we
+did not take the method’s accuracy into account. However, for models characterized by
+density functions in C
+∞[a,b], the COS method exhibits an exponential convergence
+rate, which is superior to the second order convergence of the CONV method. For
+123
+
+--- page 13 ---
+Pricing early-exercise and discrete barrier options 39
+the same level of accuracy, the COS method is therefore significantly faster than the
+CONV method.
+2.4 Discretely-monitored barrier options
+Discretely-monitored “out” barrier options are options that cease to exist if the asset
+price hits a certain barrier level, H, at one of the pre-speciﬁed observation dates. If
+H > S0, they are called “up-and-out” options, and “down-and-out” otherwise. The
+payoff for an up-and-out option reads
+v(x, T ) = (max(α(ST − K ),0) − Rb)1{Sti <H} + Rb, (42)
+where α = 1 for a call and α =− 1 for a put, Rb is a rebate, and 1A is the indicator
+function,
+1A =
+{ 1i f A is not empty,
+0 otherwise.
+With the set of observation dates, T ={ t1,..., tM }, t1 < ··· < tM−1 < tM = T ,t h e
+price of an up-and-out option, monitored M times, satisﬁes the following recursive
+formula
+⎧
+⎪⎪
+⎨
+⎪⎪
+⎩
+c(x,t
+m−1) = e−r(tm −tm−1) ∫
+R v(x,tm ) f (y|x)dy ,
+v(x,tm−1) =
+{
+e−r(T −tm−1) Rb, x ≥ h,
+c(x,tm−1), x < h,
+(43)
+where h := ln(H/K ) and m = M, M − 1,..., 2.
+Note that the recursive pricing formula ( 43) is very similar to that for the Bermudan
+options. What makes barrier pricing easier is that the root-searching algorithm is not
+needed as the barrier points are known in advance. Thus, similar to Bermudan options,
+discrete barrier options can be priced in two steps:
+1. Recovery of the Fourier-cosine series coefﬁcients of the option value at t
+1,
+2. The COS formula for European options given by ( 15).
+Based on the derivation for Bermudan options, we have the following lemma:
+Lemma 2.1 (Backward induction for discrete barrier options) By backward recur-
+sion we ﬁnd the following numerical approximation for discretely monitored barrier
+options: For m = M − 1, M − 2,..., 1,
+ˆVk (tm) = ˆCk (a, h,tm ) + e−r(T −tm−1) Rb 2
+b − a ψk (h,b) (44)
+123
+
+--- page 14 ---
+40 F. Fang, C. W. Oosterlee
+with ˆCk (x1, x2,tm ) and ψk (x1, x2) given by (36) and (25), respectively. If h < 0,w e
+have
+Vk (tM ) =
+{ 2Rbψk (h,b)/(b − a) for a call,
+Gk (a, h) + 2Rbψk (h,b)/(b − a) for a put.
+(45)
+For h ≥ 0, we ﬁnd
+Vk (tM ) =
+{ Gk (0, h) + 2Rbψk (h,b)/(b − a) for a call,
+Gk (a,0) for a put.
+(46)
+A similar recursion formula for a down-and-out option can be derived easily.
+The proof is straightforward, as it goes along the lines of the derivation for
+Bermudan options in the previous section.
+The computation of ˆC(a, h,tm ) via ( 36) is less expensive than for Bermudan
+options, because h is known in advance, and consequently, ψk (h,b) in ( 24), Mc
+and Ms in ( 36) are known before the recursion step. Therefore, the FFT technique is
+required only three times.
+Barrier options with an “in” barrier, or double barrier options, can be priced as
+easily with the COS method. Alternatively, one could apply the barrier parity and
+symmetry results on “out” barrier options [ 20,33].
+We summarize the method by means of the following algorithm:
+Algorithm 3: Pricing Discrete Barrier Options by the COS Method
+Initialization:
+• Compute Vk (tM ) using ( 45)o r( 46).
+• For up-and-out: x1 = a and x2 = h, and c = h and d = b;
+For down-and-out: x1 = h and x2 = b, and c = a and d = h.
+• Construct ms(x1, x2) and mc(x1, x2) using the properties of m j ’s.
+• d1 = D{ms(x1, x2)}, d2 = sgn · D{mc(x1, x2)}
+• G = 2
+b−a Rb {ψk (c,d)}N−1
+k=0 .
+Main Loop to Recover ˆV(tm−1): For m = M to 2,
+1. Compute u(tm ) using Eq. ( 37).
+2. Construct us by padding N zeros to u(tm).
+3. Msu = the ﬁrst N elements of D−1{ d1 · D(us) }.
+4. Mcu = reverse{ the ﬁrst N elements of D−1{ d2 · D(us) }} .
+5. ˆC(tm−1) = e−r/Delta1t /πIm {Msu + Mcu}.
+6. ˆV(tm−1) = ˆC(tm−1) + e−r(T −tm−1)G
+Finalization: Compute ˆv(t0, x) according to ( 15); Or Greeks by ( 31) and ( 32).
+123
+
+--- page 15 ---
+Pricing early-exercise and discrete barrier options 41
+3 Error analysis
+In this section, we analyze the rate of convergence as well as the stability of the COS
+method.
+3.1 Convergence for European options
+We deﬁne ϵ as
+ϵ (x; N,[a,b]) := c(x) −ˆc (x; N,[a,b]) , (47)
+An upper bound for this local error with respect to the truncation range as well as the
+convergence rate of ϵ in dependence on N, the number of leading terms in the Fourier
+cosine series, have been derived in [ 18]. Here we recall the main conclusions.
+The COS formula for European options was derived in three steps in Sect. 2.1.
+Thus, error ϵ is decomposed in three components:
+1. The integration range truncation error:
+ϵ1 (x;[a,b]) := c(x) − c1(x;[a,b]) =
+∫
+R\[a,b]
+v(y) f (y|x)dy . (48)
+2. The series truncation error on [a,b]:
+ϵ2 (x; N,[a,b]) := c1(x;[a,b]) − c2(x; N,[a,b])
+= 1
+2 (b − a)e−r/Delta1t
+∞∑
+k=N
+Ak (x) · Vk . (49)
+3. The error related to approximating Ak (x) by Fk (x) in ( 12):
+ϵ3 (x; N,[a,b]) := c2 (x; N,[a,b]) −ˆc (x; N,[a,b])
+= e−r/Delta1t
+N−1∑ ′
+k=0
+Re
+⎧
+⎪⎨
+⎪⎩
+∫
+R\[a,b]
+eik π y−a
+b−a f (y|x)dy
+⎫
+⎪⎬
+⎪⎭
+Vk . (50)
+Since the option value, v(y), is bounded on [a,b],w eh a v e
+ϵ1 (x;[a,b]) ∼ O
+⎛
+⎜⎝
+∫
+R\[a,b]
+f (y|x)
+⎞
+⎟⎠ ∼ O(TOL),
+123
+
+--- page 16 ---
+42 F. Fang, C. W. Oosterlee
+according to (3). To study the impact of x on ϵ1, we use the property f (y|x) = f (y−x),
+which holds for Lévy processes. After a change of variables on ( 48), we ﬁnd
+|ϵ1 ([a,b])| =
+⏐⏐
+⏐
+⏐⏐⏐
+⏐
+∫
+R\[a−x,b−x]
+v(x + z) f (z)dz
+⏐⏐
+⏐
+⏐⏐⏐
+⏐
+∼ O
+⎛
+⎜⎝
+∫
+R\[a−x,b−x]
+f (z)dz
+⎞
+⎟⎠. (51)
+So, when [a,b] is centered around x,o rm i n (|a| ,|b|)> > x, the inﬂuence of x on
+ϵ1 can be ignored, and ϵ1 only depends on the size of the truncation range: Larger
+intervals [b −a] result in smaller values of ϵ1. Numerical experiments supporting this
+are presented in Fig. 1. The definition of a proper truncation range is given in Sect. 3.3.
+The second error component, ϵ2, converges exponentially for probability density
+functions of class C ∞([a,b]), given a value of x [6,18], i.e.,
+|ϵ2| < P · exp(−(N − 1)ν), (52)
+where ν> 0 is a constant and P is a term which varies less than exponentially with
+N. When the probability density function has a discontinuous derivative, the Fourier-
+cosine expansion converges algebraically, i.e.
+|ϵ2| <
+¯P
+(N − 1)β−1 , (53)
+where ¯P is a constant and β ≥ n ≥ 1 (and n is the algebraic index of convergence of
+the series coefﬁcients).
+For Lévy processes, a non-zero x corresponds to a shift, f (z := y − x), and is thus
+not related to the smoothness of f (z). As a result, the convergence speed, ν in (52)o r
+β in ( 53), does not depend on x.
+The third error component, ϵ3, consists of the integration range related truncation
+error [ 18], and can be bounded by
+|ϵ3| < |ϵ1| + Q
+⏐⏐⏐
+⏐
+⏐
+⏐
+⏐
+∫
+R\[a,b]
+f (y|x)dy
+⏐⏐⏐
+⏐
+⏐
+⏐
+⏐
+, (54)
+where Q is some constant independent of N. Applying a change of variables as for
+ϵ
+1, it is clear that also here the choice of x has no impact on ϵ3,i fm i n (|a| ,|b|)> > x
+or if [a,b] is centered around x.
+Collecting the three error components and applying the triangle inequality, we can
+bound the local error, ϵ, as follows:
+|ϵ (x; N,[a,b])| ≤ |c − c1| + |c1 − c2| +
+⏐⏐c2 −ˆc
+⏐⏐
+≤ ¯Q ·
+⏐⏐
+⏐
+⏐
+⏐
+⏐⏐
+∫
+R\[a,b]
+f (y|x)dy
+⏐⏐
+⏐
+⏐
+⏐
+⏐⏐
++ |ϵ
+2 (x; N)| , (55)
+123
+
+--- page 17 ---
+Pricing early-exercise and discrete barrier options 43
+with ¯Q some constant not depending on [a,b] and N. With integration interval [a,b]
+chosen sufﬁciently wide, the series truncation error, ϵ2(N), dominates the overall error,
+which implies that for smooth density functions, ϵ converges exponentially; otherwise
+it goes algebraically.
+3.2 Error propagation in the backward recursion
+In this section we study the error in the Fourier coefﬁcients,
+ε(k,tm ) := Vk (tm) − ˆVk (tm), (56)
+and its propagation in the backward recursion, which is directly related to the error in
+the Bermudan option values. We focus on put options here and assume that the error
+resulting from applying Newton’s method is not significant, i.e., the early-exercise
+points are determined exactly. For ease of presentation, we analyze the case that the
+underlying density function is inﬁnitely differentiable. Similar analysis can be done
+for other cases.
+Theorem 3.1 With [a,b]⊂ R sufﬁciently large and a probability density function in
+C
+∞([a,b]),e r r o rε(k,tm ) converges exponentially in N.
+Proof The proof is obtained by an induction argument. At time tM−1, we compare
+(29) and ( 16), and ﬁnd
+ε(k,tM−1) = Ck (x∗
+M−1,b,tM−1) − ˆCk (x∗
+M−1,b,tM−1),
+=
+b∫
+x∗
+M−1
+(
+c(x,tM−1) −ˆc(x,tM−1)
+)
+cos
+(
+kπ x − a
+b − a
+)
+dx . (57)
+Since Vk (tM ) is exact, ˆc(x,tM−1) resulting from the COS formula only consists of
+local error ϵ(x; N,[a,b]). So,
+ε(k,tM−1) =
+b∫
+x∗
+M−1
+ϵ (x; N,[a,b]) cos
+(
+kπ x − a
+b − a
+)
+dx . (58)
+This equation can be seen as an inner product of two square-integrable functions. With
+the Cauchy-Schwarz inequality, we bound error ε(k,tM−1) as follows:
+|ε(k,tM−1)| ≤
+
+
+√
+b∫
+x∗
+M−1
+ϵ2 (x; N,[a,b]) dx ·
+
+
+√
+b∫
+x∗
+M−1
+cos2
+(
+kπ x − a
+b − a
+)
+dx . (59)
+123
+
+--- page 18 ---
+44 F. Fang, C. W. Oosterlee
+We assume that the integration interval [a,b] is chosen sufﬁciently large, so that the
+local error, ϵ, is dominated by the series truncation error ϵ2. Based on the analysis
+in Sect. 3.1, it then follows that, for density functions belonging to C ∞([a,b]),e r r o r
+ϵ(x; N) converges exponentially w.r.t. N, i.e.,
+|ϵ(x; N,[a,b])| ≤ P(x, N)exp (−(N − 1)ν) ,
+where ν> 0 is a constant not depending on N and x, and P(x, N)> 0 is a function
+which varies less than exponentially in N. With
+p(N) := max
+x∈[a,b]
+P(x, N), (60)
+it then holds that
+b∫
+x∗
+M−1
+ϵ2 (x; N,[a,b]) dx ≤ (b − x∗
+M−1) · (p(N) · exp(−(N − 1)ν))2 .
+Since cos 2(α) ≤ 1, we have
+b∫
+x∗
+M−1
+cos2
+(
+kπ x − a
+b − a
+)
+dx ≤ (b − x∗
+M−1).
+After inserting these parts, Eq. ( 59) can be written as:
+|ε(k,tM−1)| ≤ (b − x∗
+M−1) · p(N) · exp(−(N − 1)ν), (61)
+for k = 0,1,..., N − 1.
+This indicates that the convergence behaviour of ε(k,tM−1) in N is as the local
+error for pricing European options. Written in vector form, with
+ε(tM−1) := (ε(0,tM−1), ε(1,tM−1), . . . , ε(N − 1,tM−1))T ,
+it follows that
+|ε(tM−1)|∞ ≤ (b − x∗
+M−1) · p(N) · exp(−(N − 1)ν). (62)
+As a second step, we prove that if the theorem holds for time tm+1, i.e.
+|ε(tm+1)|∞ ≤ p(N)exp (−(N − 1)ν) , (63)
+with p(N) as in ( 60), then it follows that
+123
+
+--- page 19 ---
+Pricing early-exercise and discrete barrier options 45
+|ε(tm)|∞ ∼ O (exp(−(N − 1)ν)) ,
+for m = M − 2, M − 3,..., 1.
+At time tm, the definition of error ε(k,tm ) gives
+ε(k,tm ) =
+b∫
+x∗m
+(c(x,tm ) −¯c(x,tm ))cos
+(
+kπ x − a
+b − a
+)
+dx , (64)
+where ¯c(x,tm ) is obtained by inserting ˆVk (tm+1) into the COS formula. So,
+¯c(x,tm ) = e−r/Delta1t
+N−1∑ ′
+j=0
+Re
+{
+ϕ
+( jπ
+b − a
+)
+eij π x−a
+b−a
+} (
+Vj (tm+1) − ε( j,tm+1)
+)
+=ˆc(x,tm ) − e−r/Delta1t
+N−1∑ ′
+j=0
+Re
+{
+ϕ
+( jπ
+b − a
+)
+eij π x−a
+b−a
+}
+ε( j,tm+1).
+Inserted in Eq. ( 64), we ﬁnd that ε(k,tm ) consists of two parts: One related to the local
+error, as for the European options, and a second related to ε(k,tm+1), i.e.
+ε(k,tm ) =
+b∫
+x∗m
+(ϵ(x; N,[a,b]) +¯ϵ(x,tm+1))cos
+(
+kπ x − a
+b − a
+)
+dx , (65)
+where
+¯ϵ(x,tm+1) := e−r/Delta1t
+N−1∑ ′
+j=0
+Re
+{
+ϕ
+( jπ
+b − a
+)
+eij π x−a
+b−a
+}
+ε( j,tm+1). (66)
+Interchanging summation in ( 66) with integration in ( 65) gives the matrix-vector
+product form for the errors:
+ε(tm) = ε1(tm) + e−r/Delta1t Re
+{
+M(x∗
+m ,b)/Lambda1
+}
+ε(tm+1), (67)
+where the matrices M and /Lambda1are the same as in ( 30). Error ε1 is an N-vector with as
+k-th element,
+b∫
+x∗m
+ϵ(x; N,[a,b])cos
+(
+kπ x − a
+b − a
+)
+dx , k = 0,1,..., N − 1.
+123
+
+--- page 20 ---
+46 F. Fang, C. W. Oosterlee
+Equation ( 67) explains how ε1(tm) and ε(tm+1) evolve in the backward recursion. To
+bound ε1, we can repeat the steps from ( 58)t o( 62), to ﬁnd:
+|ε1(tm)|∞ ≤ (b − x∗
+m ) · p(N) · exp (−(N − 1)ν) . (68)
+For the term e−r/Delta1t Re{M(x∗
+m ,b)/Lambda1}ε(tm+1), whose k-th element reads
+b∫
+x∗m
+¯ϵ(x,tm+1)cos
+(
+kπ x − a
+b − a
+)
+dx ,
+we start with the definition of ¯ϵ(x,tm+1) in ( 66) and apply the Cauchy-Schwarz
+inequality, as follows
+(
+er/Delta1t ¯ϵ(x,tm+1)
+)2
+≤
+N−1∑ ′
+j=0
+(
+Re
+{
+ϕ
+( jπ
+b − a
+)
+eij π x−a
+b−a
+}) 2 N−1∑ ′
+j=0
+ε2(j,tm+1). (69)
+From A j (x) and Fj (x), as deﬁned in ( 11) and ( 12), respectively, we have
+Re
+{
+ϕ
+( jπ
+b − a
+)
+eij π x−a
+b−a
+}
+= 1
+2 (b − a)
+⎡
+⎢⎣A j (x)+
+∫
+R\[a,b]
+f (y|x)cos
+(
+jπ y − a
+b − a
+)
+dy
+⎤
+⎥⎦.
+Since f (y|x) ∈ R+, it is clear that f (y|x)cos(α) ≤ f (y|x), and thus,
+(
+Re
+{
+ϕ
+( jπ
+b − a
+)
+eij π x−a
+b−a
+}) 2
+≤ 1
+4 (b − a)2
+⎡
+⎢⎣A2
+j (x) + 2A j (x)
+∫
+R\[a,b]
+f (y|x)dy
++
+⎛
+⎜⎝
+∫
+R\[a,b]
+f (y|x)dy
+⎞
+⎟⎠
+2⎤
+⎥⎦. (70)
+Assuming now that the interval of integration is set sufﬁciently large, so that the related
+truncation error can be neglected, and including the leading term of ( 70)i n t o(69), one
+ﬁnds
+(
+er/Delta1t ¯ϵ(x,tm+1)
+)2
+≤ 1
+4 (b − a)2
+N−1∑ ′
+j=0
+A2
+j (x)
+N−1∑ ′
+j=0
+ε2(j,tm+1).
+For density functions belonging to C ∞([a,b]), the series coefﬁcients A j (x) converge
+exponentially in j,s e e[ 6], so that
+∑ ′N−1
+j=0 A2
+j (x) represents the sum of a geometric
+123
+
+--- page 21 ---
+Pricing early-exercise and discrete barrier options 47
+series and is therefore bounded. Deﬁne
+W := max
+x∈[a,b]
+N−1∑ ′
+j=0
+A2
+j (x).
+With Assumption ( 63) one obtains:
+|¯ϵ(x,tm+1)| ≤ 1
+2 (b − a)e−r/Delta1t √
+NWp (N)e−(N−1)ν. (71)
+Application of the Cauchy-Schwarz inequality results in:
+⏐⏐
+⏐
+⏐
+⏐⏐⏐
+b∫
+x∗m
+¯ϵ(x,tm+1)cos
+(
+kπ x − a
+b − a
+)
+dx
+⏐⏐
+⏐
+⏐
+⏐⏐⏐
+≤ (b − x
+∗
+m ) ¯p(N)e−(N−1)ν, (72)
+or, in vector form:
+e−r/Delta1t ⏐⏐Re
+{
+M(x∗
+m ,b)/Lambda1
+}
+ε(tm+1)
+⏐⏐
+∞ ≤ (b − x∗
+m) ¯p(N)e−(N−1)ν, (73)
+where ¯p(N) := 1
+2 (b −a)e−r/Delta1t √
+NWp (N). Inserting ( 68) and ( 73)i n( 67) completes
+the proof. ⊓⊔
+Summarizing, when the local error evolves through time, via the backward recur-
+sion, the method’s convergence rate does not change. This is an indication for the
+method’s stability.
+Similarly, we can prove that if the local error converges algebraically, so does
+ε(k,tm ).
+Remark 3.1 The choice of integration range, [a,b], is quite important. An interval
+which is chosen too small will lead to a significant integration-range truncation error,
+whereas an interval which is set very large would require a large value for N to achieve
+a certain level of accuracy, as determined in ( 68) and ( 73).
+3.3 Choice of truncation range
+As a rule of thumb, we propose to use the following formula to deﬁne the range of
+integration in ( 3):
+[a,b]: =
+[
+(c
+1 + x0) − L
+√
+c2 + √c4,( c1 + x0) + L
+√
+c2 + √c4
+]
+, (74)
+where x0 := ln(S0/K ) and L depends on the user-deﬁned tolerance level,T O L ,a s
+given in ( 3). c1,..., c4 are the cumulants, based on the characteristic function of the
+underlying process, and detailed in Appendix B.
+123
+
+--- page 22 ---
+48 F. Fang, C. W. Oosterlee
+68 1 0
+−16
+−14
+−12
+−10
+−8
+−6
+L
+Log10 ( Absolute Error )
+BS
+68 1 0
+−16
+−14
+−12
+−10
+−8
+−6
+L
+Log10 ( Absolute Error )
+VG
+68 1 0
+−16
+−14
+−12
+−10
+−8
+−6
+L
+Log10 ( Absolute Error )
+CGMY
+68 1 0
+−16
+−14
+−12
+−10
+−8
+−6
+L
+Log10 ( Absolute Error )
+NIG
+K=80 K=100 K=120
+68 1 0
+−16
+−14
+−12
+−10
+−8
+−6
+L
+Log10 ( Absolute Error )
+Merton
+68 1 0
+−16
+−14
+−12
+−10
+−8
+−6
+L
+Log10 ( Absolute Error )
+Kou
+Fig. 1 L versus the logarithm of the absolute errors for pricing calls by the COS method with N = 214,
+T = 1 year and three different strike prices
+Cumulant c4 is included in ( 74), because, for short maturities, the density functions
+of many Lévy processes have sharp peaks and ﬂat tails, and this behavior can be well
+captured by the inclusion of c4.
+Here, we analyze the relation between TOL and L in ( 74) via numerical experi-
+ments, aiming to determine one value of L for different exponential Lévy asset price
+processes. We present the observed error for different values of L in Fig. 1. With N
+large, e.g. N = 214, the series truncation error is negligible and the integration range
+error, which has a direct relation to the user-deﬁned TOL, dominates. The results
+in Fig. 1 can therefore be used as a guidance for setting parameter L, given a tol-
+erance TOL. In the ﬁgure, and throughout this paper, BS denotes the Black-Scholes
+model (Geometric Brownian Motion), VG stands for the V ariance Gamma model [ 26],
+CGMY denotes the model from [ 10], NIG is short for the Normal Inverse Gaussian
+Lévy process [ 5], Merton denotes the jump-diffusion model developed in [ 27], and
+Kou is the jump-diffusion model from [ 24].
+W es e ei nF i g .1 that the integration range error decreases exponentially with L.
+The use of L = 8 seems appropriate for all the Lévy processes considered. This
+value is used in all numerical experiments to follow. Via experiments, we also found
+that formula ( 74), together with a proper choice of L, deﬁnes an appropriate truncation
+range for any maturity time longer than 0.1 years. For even shorter maturities, one can
+use a larger value of L.
+123
+
+--- page 23 ---
+Pricing early-exercise and discrete barrier options 49
+Table 1 Test parameters for pricing Bermudan options
+Test no. Model S0 KT r σ Other parameters
+1 BS 100 110 1 0 .10 .2–
+2 CGMY 100 80 1 0 .10 C = 1, G = 5, M = 5, Y = 1.5
+4 Numerical results
+We will show the method’s impressive convergence by pricing Bermudan,
+American and discretely-monitored barrier options. In the following, we present
+numerical results for the BS, CGMY and NIG models. Extensive tests (not given
+here) have demonstrated that the COS method also shows excellent performance for
+other Lévy processes. The characteristic functions as well as the cumulants for several
+exponential Lévy asset price processes are listed in Appendix B.
+The computer used has an Intel Pentium 4 CPU, 2.80 GHz with cache size 1024 KB;
+The code is written in Matlab 7.4. The CPU times for all experiments to follow are
+averaged over 100 repeated tests.
+In order to observe the exponential error convergence, we deﬁne a ratio,
+ratio = ln
+(⏐⏐err (2
+d+1)
+⏐⏐)
+ln
+(⏐⏐err (2d )
+⏐⏐) , d ∈ Z+, (75)
+where err (2d ) denotes the error between reference solution and approximation
+obtained with N = 2d .I f err (N) = C1 exp(−P1 N) with C1 and P1 not depend-
+ing on N, this ratio should be equal to 2; If the error convergence is algebraic, i.e.
+err (N) = C2 N−P2 with C2 and P2 not depending on N, this ratio should equal
+(d + 1)/d.
+Next to the series and the integration range truncation error, another error for
+Bermudan options is related to the stopping criterion of the root-searching algorithm,
+i.e., Newton’s method. With an initial guess x∗
+m+1 = x∗
+m, m = M − 2,..., 2 (and
+x∗
+M−1 = 0), this error becomes sufﬁciently small, of O(10−7) in 4 Newton iterations
+and of O(10−10) in 5 iterations. In the experiments to follow, we use 5 iterations.
+4.1 Bermudan and American options
+Here we price Bermudan put options with 10 exercise dates. Test parameters for two
+test cases are given in Table 1. These parameters are related to the characteristic func-
+tions presented in Table 8 and the cumulants from Table 9.
+The CPU times are reported in milli-seconds, and all reference values are obtained
+by another method, i.e., by the CONV method from [ 25], setting N = 220.
+The ﬁrst test is for the classical BS model with as the reference value 10 .479520123.
+In Fig. 2a it is shown that a highly accurate solution is obtained in less than 20 ms with
+exponential convergence (the log-error plot displays a straight line). Compared to the
+123
+
+--- page 24 ---
+50 F. Fang, C. W. Oosterlee
+10 20
+(a) (b)
+30 40 50
+−10
+−9
+−8
+−7
+−6
+−5
+−4
+−3
+−2
+−1
+milliseconds
+log10|error|
+BS
+COS, L=8, N=32*d, d=1:5
+CONV, δ=20, N=2d, d=8:12
+10 20 30 40 50 60
+−10
+−9
+−8
+−7
+−6
+−5
+−4
+−3
+−2
+−1
+milliseconds
+log10|error|
+CGMY
+COS, L=8, N=32*d, d=1:5
+CONV, δ=20, N=2d, d=8:12
+Fig. 2 Error versus CPU time for pricing Bermudan put options under a BS (Test no. 1) and b CGMY
+(Y = 1.5, Test no. 2) model, comparing the COS and the CONV method
+quadrature-rule based CONV method, which exhibits a second-order convergence,
+we see a significant improvement in the CPU time.
+As the second test, we consider a Lévy process of inﬁnite activity, i.e., the CGMY
+model with Y > 1( T e s t2i nT a b l e 1). For this set of CGMY parameters it is now
+well-known that PIDE-based methods have convergence difﬁculties [ 2,34]. The ref-
+erence value is found to be 28 .829781986 ... . The performance of the COS method
+for this test, shown in Fig. 2b is highly efﬁcient. Again, in less than 20 ms, the solution
+is accurate to 9 digits, compared to the reference value. Also here, we observe the
+exponential error convergence of the COS method.
+Remark 4.1 (VG and algebraic convergence) In [ 18] it was shown that for certain sets
+of parameters the V ariance Gamma (VG) process gives rise to a probability density
+function which is not in C
+∞(R), and thus option pricing under VG with these param-
+eter sets exhibits only an algebraic convergence. This is observed for contracts with
+T <ν , where ν denotes the variance of the VG model, see the characteristic function
+in Appendix B.
+When dealing with Bermudan options this also implies that we will encounter
+algebraic convergence when the time between two exercise dates, /Delta1t <ν .
+The prices of American options can be obtained by applying a Richardson extrap-
+olation on the prices of a few Bermudan options with small M [12], as demonstrated,
+for example, in [ 25]. Let v(M) denote the value of a Bermudan option with M early
+exercise dates. We will use the following 4-point Richardson extrapolation scheme,
+vAM (d) = 1
+21
+(
+64v(2d+3) − 56v(2d+2) + 14v(2d+1) − v(2d )
+)
+, (76)
+where vAM (d) denotes the approximated value of the American option.
+Now we price an American option using ( 76) with the 4-point Richardson extrap-
+olation on Bermudan puts and vary the number of exercise dates. The parameters,
+123
+
+--- page 25 ---
+Pricing early-exercise and discrete barrier options 51
+presented in Table 2,a r et a k e nf r o m[ 1] and the reference value given was V (0) =
+0.112152. We deal with the pure Lévy CGMY jump model ( σ = 0) and no dividend
+payment ( q = 0) here.
+We compare the results of the COS method with those obtained by the CONV
+method using the same extrapolation. For the COS method, N = 512 and the number
+of Newton iterations is 5; For the CONV method N = 4,096 to reach a very similar
+accuracy. The accuracy of the American prices then mainly depends on parameter d in
+the extrapolation ( 76). Results are summarized in Table 3. We can see that large values
+of d give highly accurate results. The COS method in combination with Richardson
+extrapolation gives, however, a very satisfactory accuracy within 75 ms.
+4.2 Barrier options
+Now we price monthly-monitored ( M = 12) up-and-out call and put options, (UOC)
+and (UOP), down-and-out call and put options, (DOC) and (DOP), by the COS method.
+The test parameters are in Table 4, again related to the characteristic functions in
+Table 8. We solve the same problems as in [ 19] with the barrier level, H = 120 for
+the up-and-out and H = 80 for the down-and-out options.
+The numerical results under the CGMY model (Test 4) are presented in Table 5.T h e
+CPU times are again measured in milli-seconds, and the reference values are obtained
+by the CONV method [ 25], with N = 2
+15. Note that “ratio”, as presented in the table,
+is different from the commonly used ratio deﬁning the rate of convergence. In ( 75),
+it is the ratio of the logarithm of two consecutive errors. This ratio should be equal to
+two in the case of exponential convergence.
+As expected, the COS method is more efﬁcient for discrete barrier options than for
+Bermudan options, because the barrier levels are known in advance.
+Exponential error convergence is observed, as the ratios ( 75) are around 2, in less
+than 5 ms with the results accurate up to 8 decimal places.
+Table 2 Parameters for American put options under the CGMY model
+Test no. S0 KTr Other parameters
+31 1 1 0 .1 C = 1, G = 5, M = 5, Y = 0.5
+Table 3 Errors and CPU times
+for pricing American puts under
+CGMY model, Test no. 3
+d in Eq. ( 76) COS CONV
+Error Time (ms) Error Time (ms)
+0 4.41e-05 71.41 4.37e-05 134.4
+1 7.69e-06 109.2 7.01e-06 198.0
+2 9.23e-07 219.3 1.05e-06 336.7
+3 3.04e-07 438.9 1.29e-07 610.9
+123
+
+--- page 26 ---
+52 F. Fang, C. W. Oosterlee
+Table 4 Test parameters for pricing barrier options
+Test no. Model S0 KT r q Other parameters
+4 CGMY 100 100 1 0 .05 0 .02 C = 4, G = 50, M = 60, Y = 0.7
+5 NIG 100 100 1 0 .05 0 .02 α = 15,β =− 5,δ = 0.5
+Table 5 Errors and CPU times for pricing monthly-monitored barrier options under the CGMY model
+(Test no. 4)
+Option type Ref. val. N Time (ms) Error Ratio
+DOP 2 .339381026 2 4 2.8 2.23e-1 –
+25 2.7 1.98e-2 2.6
+26 3.4 3.23e-4 2.0
+27 4.6 7.20e-9 2.3
+DOC 9 .155070561 2 4 2.7 5.06e-2 –
+25 2.9 5.67e-3 1.7
+26 3.3 1.99e-4 1.6
+27 4.7 5.55e-9 2.2
+UOP 6 .195603554 2 4 3.0 5.58e-2 –
+25 2.9 8.98e-3 1.6
+26 3.6 1.96e-4 1.8
+27 4.8 2.23e-8 2.1
+UOC 1 .814827593 2 4 2.8 3.38e-1 –
+25 2.8 1.24e-2 4.0
+26 3.5 3.45e-6 2.9
+27 4.7 1.93e-8 1.4
+Next, we focus on the NIG model (Test 5) and repeat the barrier option tests in
+Table 6. To reach the same level of accuracy as for CGMY , we need a slightly larger
+value of N under the NIG model. This is because the NIG density function is more
+peaked with the parameters from Table 4, as shown in Fig. 3a. Consequently, one
+typically requires some more terms in the series to reconstruct the density function
+from its Fourier-cosine series expansion. Nevertheless, the performance of the COS
+method is still excellent: In less than 10 ms, the accuracy is up to the 7-th decimal
+place.
+Note that, the smaller the value of /Delta1t, the larger the value of N needs to be chosen
+to reach the same level of accuracy. This is because many Lévy processes have highly
+peaked density functions for very small /Delta1t. An example is presented in Fig. 3b, where
+the recovered density functions of the NIG model for monthly-, weekly- and daily-
+monitored barrier options are plotted. We can see that for /Delta1t = 1/252 the density is
+highly peaked, compared to /Delta1t = 1/12. Nevertheless, as long as the density function
+is in C
+∞(R), the error convergence rate is exponential.
+123
+
+--- page 27 ---
+Pricing early-exercise and discrete barrier options 53
+Table 6 Errors and CPU times for pricing monthly-monitored barrier options under the NIG model (Test
+no. 5)
+Option type Ref. val. N Time (ms) Error Ratio
+DOP 2 .139931117 2 6 3.1 4.25e-2 –
+27 3.7 1.28e-3 2.1
+28 5.4 4.65e-5 1.5
+29 8.4 1.39e-7 1.6
+210 14.7 1.38e-12 1.7
+DOC 8 .983106036 2 6 3.1 1.26e-2 –
+27 3.7 1.09e-3 1.6
+28 5.3 3.99e-5 1.5
+29 8.3 9.47e-8 1.6
+210 14.8 5.61e-13 1.7
+UOP 5 .995341168 2 6 3.4 4.84e-3 –
+27 3.7 1.14e-3 1.3
+28 5.3 7.50e-5 1.4
+29 8.3 1.52e-7 1.7
+210 14.7 1.24e-12 1.7
+UOC 2 .277861597 2 6 3.1 3.83e-2 –
+27 3.7 1.10e-3 2.1
+28 5.5 8.67e-5 1.4
+29 8.6 7.98e-8 1.7
+210 15.1 7.38e-13 1.7
+−0.5 0 0.5
+0
+2
+4
+6
+8
+10
+12
+x
+density value
+∆ t=1/12 years
+NIG; Test No. 6
+CGMY; Test No. 5
+(a)
+−0.1 −0.05 0 0.05 0.1 0.15
+0
+20
+40
+60
+80
+100
+120
+140
+160
+x
+density value
+∆ t = 1/12 years
+∆ t = 1/48 years
+∆ t = 1/252 years
+(b)
+Fig. 3 The recovered density functions for ( a, the NIG and the CGMY models and monthly-monitored
+barrier options and b the NIG model for monthly-, weekly- and daily-monitored barrier options. a NIG and
+CGMY with /Delta1t = 1
+12 , b NIG with /Delta1t = 1
+12 , 1
+48 , and 1
+252
+123
+
+--- page 28 ---
+54 F. Fang, C. W. Oosterlee
+Table 7 Errors and CPU times for pricing daily-monitored ( M = 252) barrier options under the NIG
+model (Test 5)
+Option type Ref. val. N Time (ms) Error Ratio
+DOP 1 .88148753 2 9 130 1.25e-2 –
+210 230 2.20e-3 1.4
+211 460 1.32e-4 1.5
+212 1170 1.98e-6 1.5
+213 2560 4.70e-8 1.3
+DOC 8 .96705248 2 9 140 3.67e-4 –
+210 230 9.18e-5 1.2
+211 460 3.14e-5 1.1
+212 950 2.00e-6 1.3
+213 2430 5.73e-9 1.4
+We now price daily-monitored DOP and DOC options under the NIG model with
+the parameters from Test 5 in Table 4. The reference values are taken from [ 19].
+The results with the COS method are summarized in Table 7. We observe that, as
+expected, the convergence rate of the COS method is exponential, but the values of
+N are somewhat larger than in the previous numerical experiments. The almost linear
+computational complexity of the method can clearly be observed from this table.
+For results accurate up to the 4th digit, the COS method needs about 0.2 seconds
+for the daily-monitored DOP as well as for the DOC.
+Remark 4.2 (Comparison to hilbert transform method) The complexity of the COS
+method is O((M − 1)N log2(N)), as the length of the induction loop (in which the
+FFT is employed) is M −1, and the ﬁnal step uses N operations. Additionally, its error
+convergence is exponential for models with density function in the class C ∞([a,b]).
+By considering both complexity and error convergence, the COS method is as efﬁcient
+as the Hilbert transform method in [ 19]. The experiments above show that the COS
+method is as fast in terms of CPU time (although we have a slower CPU and the code
+is written in Matlab). That method cannot be used to price Bermudan options, as the
+information of the early-exercise points is not known in advance. Moreover, the COS
+method uses more-or-less the same CPU time for different types of barrier options,
+which is not the case in [ 19].
+5 Conclusions and discussion
+In this paper, we have generalized the COS option pricing method, based on
+Fourier-cosine expansions, to Bermudan and discretely-monitored barrier options.
+The method can be used whenever the characteristic function of the underlying price
+process is available (i.e., for regular afﬁne diffusion processes and, in particular, for
+exponential Lévy processes).
+123
+
+--- page 29 ---
+Pricing early-exercise and discrete barrier options 55
+The main insights in the paper are that the COS formula for European options
+from [ 18] can be used for pricing Bermudan and barrier options, if the series coefﬁ-
+cients of the option values at the ﬁrst early-exercise (or monitoring) date are known.
+These coefﬁcients can be recursively recovered from those of the payoff function. The
+computational complexity is O((M −1)N log
+2 N), for Bermudan and barrier options
+with M exercise, or monitoring, dates. The COS method exhibits an exponential con-
+vergence in N for density functions in C ∞[a,b] and an impressive computational
+speed. With a small N, it typically produces highly accurate results. For example,
+with N = 128, results are accurate up to the 8th digit in less than 20 ms for 10-times
+exercisable Bermudan options and less than 10 ms for monthly-monitored barrier
+options. We expect a further factor of three gain in computational speed when replacing
+the Matlab implementation by an implementation in C.
+However, the smaller the time interval between two consecutive dates, the more
+peaked the underlying density function, and thus larger values of N are required for a
+similar accuracy. For problems with small time intervals, like daily-monitored barrier
+options, the COS method shows a similar performance as the Hilbert transform based
+method [ 19].
+Compared to the CONV method [ 25], which is one of the fast methods for
+Bermudan options, the COS method converges significantly faster to the same level
+of accuracy. Pricing American options can be done by a Richardson extrapolation
+method on Bermudan options with a varying number of exercise dates.
+Appendix A: From Bermudan to American options
+In this section, we discuss the behaviour of the error if M, the number of early-exercise
+dates, goes to inﬁnity. We also check how the Bermudan option prices converge to
+their American option counterparts.
+American options can, in this framework, be priced basically by two approaches.
+One can either price a Bermudan option with very many exercise dates, or employ
+extrapolation methods. Whereas the latter approach is much more practical, in terms
+of CPU time, and has been used in Sect. 4.1, the former approach is interesting from
+a stability point-of-view. Here we therefore consider the pricing of Bermudan options
+with many exercise dates, for reasons of stability. It is interesting to consider the limit
+case, and check whether the method presented is still applicable.
+The series truncation error, ϵ
+2, may be problematic at ﬁrst sight, for /Delta1t → 0.
+For small time intervals the transitional probability density function tends to become
+highly peaked. However, by letting the number of terms in the Fourier-cosine expan-
+sion increase, for /Delta1t → 0, the method can deal with such highly peaked functions, as
+long as they are in C
+∞[a,b]. Moreover, the size of the integration range is, by means
+of the cumulants involved in ( 74), automatically adapted to the shape of the function.
+A.1 Density recovery: inﬂuence of adapted truncation range
+From the discussion above it is clear that the recovery of the probability density
+functions of the Lévy processes, for /Delta1t → 0, from their Fourier cosine series
+123
+
+--- page 30 ---
+56 F. Fang, C. W. Oosterlee
+5 10 15
+−15
+−10
+−5
+0
+d, N=2d
+log10 | error |
+Fixed truncation range
+∆ t=1
+∆ t=0.01
+∆ t=0.001
+∆ t=1e−005
+∆ t=1e−007
+5 10 15
+−15
+−10
+−5
+0
+d, N=2d
+log10 | error |
+∆ t adapted truncation range(a)
+5 10 15 20
+−15
+−10
+−5
+0
+5
+10
+d, N=2d
+log10 | error |
+Fixed truncation range
+∆ t=1
+∆ t=0.01
+∆ t=0.001
+∆ t=1e−005
+∆ t=1e−007
+5 10 15 20
+−15
+−10
+−5
+0
+5
+10
+d, N=2d
+log10 | error |
+∆ t adapted truncation range(b)
+Fig. 4 The recovered density functions for /Delta1t → 0; a the GBM model with ﬁxed and adapted integration
+range, b the NIG model with ﬁxed and adapted ranges
+expansion, is crucial. Figure 4 shows the importance of the proper adaptive choice
+of the integration range, by means of the cumulants in ( 74). For several values of /Delta1t,
+with even /Delta1t = 10−7, the density recovery with a ﬁxed and an adapted integration
+range are compared, for GBM as well as for NIG. It is clear that the adaptive choice
+of integration range is superior for the recovery. Whereas, we see that for GBM the
+density can be recovered on the adapted integration range without significant difﬁcul-
+ties, when /Delta1t → 0, it is less trivial for the NIG process. For this latter process, the
+recovery gets difﬁcult for the smallest time interval, even with the interval adaptation.
+A.2 Stability of the method
+Based on Theorem 3.1 and its proof in Sect. 3.2, we saw an exponential convergence
+in N. Inequality ( 73) indicates that the proportionality constant in the convergence
+estimate may grow with the number of exercise dates, M, so that with N ﬁxed the
+error may increase substantially for increasing M.
+However, the error convergence is as fast as exponential in N, so that one can
+achieve very high accuracy by slightly increasing N.
+We show here, by means of some numerical experiments that the resulting error in
+ˆV(t
+1) is bounded. In Fig. 5, we present the convergence for Bermudan call options
+123
+
+--- page 31 ---
+Pricing early-exercise and discrete barrier options 57
+5 6 7 8 9 10 11
+−30
+−25
+−20
+−15
+−10
+−5
+0
+5
+d, N=2d
+log10 |error|
+M=10
+M=50
+M=200
+M=500
+(a)
+5 6 7 8 9 10 11
+−35
+−30
+−25
+−20
+−15
+−10
+−5
+0
+5
+d, N=2d
+log10 |error|
+M=10
+M=50
+M=200
+M=500
+(b)
+Fig. 5 Error convergence for increasing M and N. a T = 1 year, b T = 0.1 year
+under GBM with a varying number of exercise dates with respect to the number of
+terms in the cosine series, N. Shown is the logarithm of the error, log 10 |err|, versus
+N. The dividend rate is set to zero, so that there are no early-exercise opportunities,
+i.e. x∗
+m = b for m = 0,1,..., M − 1, and thus, the Bermudan call options have the
+same values as their European counterparts. The other parameters are as in Table 1.
+The truncation range is deﬁned according to the description in Sect. 3.3.
+We see a convergence of extreme accuracy, because the reference values are also
+obtained by the COS method for European options, and therefore the error related to
+the truncation range cannot be observed.
+For two maturities, T = 1 year and short maturity T = 0.1 year, relatively large
+values of M do not show any significant impact on the error convergence with respect
+to N. Merely, the start of convergence shifts to larger values of N as M increases,
+which conﬁrms the intuition that higher values for N can compensate for the higher
+peakedness of the density function. With N small, however, the error presented remains
+bounded.
+A.3 Convergence of Bermudan to American option prices
+It is also interesting to study the convergence of the Bermudan option prices to their
+American equivalents, by increasing M, ﬁxing N.I nF i g . 6, the logarithm of the
+difference in values of Bermudan put options with 2,000 exercise times and with M
+(varying) between 0 and 1,000 exercise dates is presented, under the GBM and CGMY
+models. We set T = 0.1 year maturity and use N = 2
+12. Other parameters are given
+in Table 1.
+The ﬁgure shows that, when N is sufﬁciently large, the COS method converges for
+the problems presented. The convergence of Bermudan to American option prices is
+evident from the ﬁgures. We observe a linear convergence of the Bermudan options,
+with an increasing number of exercise dates, to the American price by means of the
+quantity q(M) =[¯v
+AM −¯v(M)]/[¯vAM −¯v(2M)]. We ﬁnd q(M) = 2 for both GBM
+and the CGMY test case, which indicates linear convergence with respect to /Delta1t.T h e
+convergence speed, however, is model-dependent, and is related to the decay rate of
+123
+
+--- page 32 ---
+58 F. Fang, C. W. Oosterlee
+0 200 400 600 800 1000
+−8
+−7
+−6
+−5
+−4
+−3
+−2
+M, number of early−exercise points
+log10 | v(M)−v(2000) |
+(a)
+0 200 400 600 800 1000
+−12
+−11
+−10
+−9
+−8
+−7
+−6
+−5
+M, number of early−exercise points
+log10 | v(M)−v(2000) |
+(b)
+Fig. 6 Convergence of Bermudan options to American options as M →∞
+the characteristic function. For a Bermudan call option without any dividend payment,
+as an example, ( 29) reads
+ˆV(tm) = ˆC(a,b,tm ) =
+{ Re {M(a,b)/Lambda1} V(tM ) m = M − 1
+Re {M(a,b)/Lambda1} ˆV(tm+1) m = 1,2,..., M − 2.
+and thus,
+ˆV(t1) = (Re {M(a,b)/Lambda1})M−1 V(tM ). (77)
+Since neither the matrix M nor V(tM ) depends on the type of underlying process, the
+important matrix here is /Lambda1, the diagonal matrix with the elements being related to the
+characteristic function.
+A.3.1 Extrapolation and American option pricing
+In the present article the price of an American option is computed from the Bermudan
+option prices by means of the repeated Richardson extrapolation scheme by Chang
+et al. [ 12]. Let ˆv(M) be the price of a Bermudan option with a maturity of T years
+and M exercise dates, which are /Delta1t = T/M years apart. It is assumed that ˆv(M) can
+be expanded as
+ˆv(M) =ˆv(0) +
+∞∑
+i=1
+ai (/Delta1t)γi , (78)
+with 0 <γ i <γ i+1. ˆv(0) ≡ vAM (0) represents the price of the American option.
+Repeated Richardson extrapolation is a well-known technique for improving the accu-
+racy of a solution. It will converge highly satisfactory if γi ≥ 1i nE q .( 78). Classical
+extrapolation procedures assume that the exponents γi are known, which means that
+we can use n +1 Bermudan prices with varying /Delta1t in order to eliminate n of the lead-
+ing order terms in Eq. ( 78). The only paper considering an expansion of the Bermudan
+123
+
+--- page 33 ---
+Pricing early-exercise and discrete barrier options 59
+option price in terms of /Delta1t is [ 22], ﬁnding that γ1 = 1 for the Black-Scholes model.
+Numerical tests also indicate that the assumption γi = i produces highly satisfactory
+results for the Lévy models in this paper.
+Appendix B: Characteristic functions and cumulants
+The COS method requires from the underlying process the characteristic function to
+be known. The method ﬁts therefore well to exponential Lévy models, whose char-
+acteristic functions are available in closed form. The motivation behind using general
+Lévy processes for the underlying is the fact that the Black-Scholes model is not able
+to reproduce the volatility skew or smile present in most ﬁnancial markets, whereas it
+has been shown that several exponential Lévy models can, at least to some extent.
+In exponential Lévy models the asset price is modeled as an exponential function
+of a Lévy process L(t):
+S(t) = S(0)exp(L(t)). (79)
+A process L(t), with L(0) = 0, is a Lévy process if:
+1 it has independent increments;
+2 it has stationary increments;
+3 it is stochastically continuous, i.e., for any t ≥ 0 and ϵ> 0w eh a v e
+lim
+s→t P(|L(t) − L(s)| >ϵ ) = 0. (80)
+Each Lévy process can be characterized by a triplet ( µ,σ,ζ) with µ ∈ R,σ ≥ 0
+and ζ a measure satisfying ζ(0) = 0 and
+∫
+R
+min (1,|x|2)ζ(dx )< ∞. (81)
+In terms of this triplet the characteristic function of the Lévy process is available in
+closed form, due to the celebrated Lévy-Khinchine formula. We recall the formulas for
+the characteristic function for several exponential Lévy processes in Table 8.F o rm o r e
+background information on these processes we point you to [ 13,30] for the usage of
+Lévy processes in a ﬁnancial context and to [ 29] for a detailed analysis of Lévy pro-
+cesses in general. With respect to the parameters for the various processes in Table 8
+we also basically follow the books [ 13,30].
+Given the characteristic functions, the cumulants, deﬁned in [ 13], can be computed
+via
+cn(X) = 1
+in
+∂n(t/Psi1(ξ))
+∂ξ n
+⏐⏐
+⏐
+⏐
+ξ=0
+,
+123
+
+--- page 34 ---
+60 F. Fang, C. W. Oosterlee
+Table 8 Characteristic functions of ln (St /K ) for various models
+BS ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)
+NIG ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)φNIG(ξ, t; α, β, δ)
+φNIG(ξ, t; α, β, δ)= exp
+[
+δt
+(√
+α2 − β2 −
+√
+α2 − (β + iξ)2
+)]
+Kou ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)φKou(ξ, t; λ, p,η1,η2)
+φKou(ξ, t;λ, p,η 1,η2) = exp
+[
+λt
+( pη1
+η1−iξ − (1−p)η2
+η2+iξ − 1
+)]
+Merton ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)φMerton(ξ, t;λ, ¯µ, ¯σ)
+φMerton(ξ, t) = exp
+[
+λt
+(
+exp(i ¯µξ − 1
+2 ¯σ2ξ2) − 1
+)]
+VG ϕ(ξ, t) = exp (iξµt)φVG (ξ, t; σ,ν,θ)
+φVG (ξ, t; σ,ν,θ) = (1 − iξθν + 1
+2 σ2νξ 2)−t/ν
+CGMY ϕln(St /K )(ξ, t; x) = exp (iξµt − 1
+2 σ2ξ2t)φCGMY (ξ, t;C, G, M, Y )
+φCGMY (ξ, t;C, G, M, Y ) = exp(Ct /Gamma1(−Y )[(M − iξ)Y − MY + (G + iξ)Y − GY ])
+Table 9 Cumulants of ln (St /K ) for various models
+BS c1 = (µ − 1
+2 σ2)t, c2 = σ2t, c4 = 0
+NIG c1 = (µ − 1
+2 σ2 + w)t + δtβ/
+√
+α2 − β2
+c2 = δtα2(α2 − β2)−3/2
+c4 = 3δtα2(α2 + 4β2)(α2 − β2)−7/2
+w =− δ(
+√
+α2 − β2 −
+√
+α2 − (β + 1)2)
+Kou c1 = t
+(
+µ + λp
+η1 + λ(1−p)
+η2
+)
+c2 = t
+(
+σ2 + 2 λp
+η2
+1
++ 2 λ(1−p)
+η2
+2
+)
+c4 = 24tλ
+(
+p
+η4
+1
++ 1−p
+η4
+2
+)
+w = λ
+( p
+η1+1 − 1−p
+η2−1
+)
+Merton c1 = t(µ + λ ¯µ) c2 = t
+(
+σ2 + λ ¯µ2 +¯σ2λ
+)
+c4 = tλ
+(
+¯µ4 + 6 ¯σ2 ¯µ2 + 3 ¯σ4λ
+)
+VG c1 = (µ + θ)tc 2 = (σ2 + νθ2)t
+c4 = 3(σ4ν + 2θ4ν3 + 4σ2θ2ν2)t w = 1
+ν ln(1 − θν − σ2ν/2)
+CGMY c1 = µt + Ct /Gamma1(1 − Y )
+(
+MY −1 − GY −1
+)
+c2 = σ2t + Ct /Gamma1(2 − Y )
+(
+MY −2 + GY −2
+)
+c4 = Ct /Gamma1(4 − Y )
+(
+MY −4 + GY −4
+)
+w =− C/Gamma1(−Y )[(M − 1)Y − MY + (G + 1)Y − GY ]
+where w is the drift correction term that satisﬁes exp (−wt) = ϕ(−i, t).
+where t/Psi1(ξ)is the exponent of the characteristic function ϕ(ξ, t), i.e.
+ϕ(ξ, t) = et/Psi1(ξ), t ≥ 0.
+The formulas for the cumulants are summarized in Table 9. They have been conﬁrmed
+with the help of Mathematica.
+123
+
+--- page 35 ---
+Pricing early-exercise and discrete barrier options 61
+Open Access This article is distributed under the terms of the Creative Commons Attribution Noncom-
+mercial License which permits any noncommercial use, distribution, and reproduction in any medium,
+provided the original author(s) and source are credited.
+References
+1. Almendral, A., Oosterlee, C.W.: Accurate evaluation of European and American options under the
+CGMY process. SIAM J. Sci. Comput. 29, 93–117 (2007)
+2. Almendral, A., Oosterlee, C.W.: On American options under the V ariance Gamma process. Appl.
+Math. Finance 14(2), 131–152 (2007)
+3. Andricopoulos, A.D., Widdicks, M., Duck, P .W., Newton, D.P .: Universal option valuation using quad-
+rature methods. J. Fin. Econ. 67, 447–471 (2003)
+4. Andricopoulos, A.D., Widdicks, M., Duck, P .W., Newton, D.P .: Extending quadrature methods to
+value multi-asset and complex path dependent options. J. Fin. Econ. 83, 471–499 (2007)
+5. Barndorff-Nielsen, O.E.: Normal inverse Gaussian distributions and stochastic volatility model-
+ling. Scand. J. Stat. 24, 1–13 (1997)
+6. Boyd, J.P .: Chebyshev and Fourier Spectral Methods. Springer, Berlin (1989)
+7. Broadie, M., Yamamoto, Y .: Application of the fast Gauss transform to option pricing. Manag.
+Sci. 49(8), 1071–1088 (2003)
+8. Broadie, M., Yamamoto, Y .: A double-exponential fast Gauss transform for pricing discrete path-
+dependent options. Oper. Res. 53(5), 764–779 (2005)
+9. Cariboni, J., Schoutens, W.: Pricing credit default swaps under Lévy models. J. Comp.
+Finance 10(4), 71–91 (2008)
+10. Carr, P .P ., Geman, H., Madan, D.B., Yor, M.: The ﬁne structure of asset returns: an empirical investi-
+gation. J. Bus. 75, 305–332 (2002)
+11. Carr, P .P ., Madan, D.B.: Option valuation using the Fast Fourier Transform. J. Comp. Finance 2, 61–
+73 (1999)
+12. Chang, C.-C., Chung, S.-L., Stapleton, R.C.: Richardson extrapolation technique for pricing Ameri-
+can-style options. J. Futures Markets 27(8), 791–817 (2007)
+13. Cont, R., Tankov, P .: Financial Modelling with Jump Processes. Chapman and Hall, Boca Raton,
+FL (2004)
+14. Dempster, M.A.H., Hong, S.S.G.: Spread option valuation and the Fast Fourier transform. Techn. Rep.
+WP 26/2000, the Judge Inst. Manag. Studies, University Cambridge (2000)
+15. Dufﬁe, D., Pan, J., Singleton, K.J.: Transform analysis and asset pricing for afﬁne jump-diffusions. Eco-
+nometrica 68, 1343–1376 (2000)
+16. Dufﬁe, D., Filipovic, D., Schachermayer, W.: Afﬁne processes and applications in ﬁnance. Ann. Appl.
+Probab. 13(3), 984–1053 (2003)
+17. Eydeland, A.: A fast algorithm for computing integrals in function spaces: ﬁnancial applications. Com-
+put. Econ. 7(4), 277–285 (1994)
+18. Fang, F., Oosterlee, C.W.: A novel option pricing method based on Fourier-cosine series expan-
+sions. SIAM J. Sci. Comput. 31(2), 826–848 (2008)
+19. Feng, L., Linetsky, V .: Pricing discretely monitored barrier options and defaultable bonds in Lévy
+process models: a fast Hilbert transform approach. Math. Finance 18(3), 337–384 (2008)
+20. Haug, E.G.: Barrier put-call transformations, see http://www.smartquant.com/references/
+OptionPricing/option27.pdf
+21. Hirsa, A., Madan, D.B.: Pricing American options under V ariance Gamma. J. Comp. Finance 7, 63–
+80 (2004)
+22. Howison, S.: A matched asymptotic expansions approach to continuity corrections for discretely sam-
+pled options. Part 2: Bermudanoptions. Appl. Math. Finance 14(1), 91–104 (2007)
+23. Jackson, K., Jaimungal, S., Surkov, V .: Option pricing with regime switching Lévy processes using
+Fourier space time-stepping. In: Proc. 4th IASTED Intern. Conf. Financial Engin. Applic., pp. 92–97
+(2007)
+24. Kou, S.G.: A jump diffusion model for option pricing. Manag. Sci. 48(8), 1086–1101 (2002)
+25. Lord, R., Fang, F., Bervoets, F., Oosterlee, C.W.: A fast and accurate FFT-based method for pricing
+early-exercise options under Lévy processes. SIAM J. Sci. Comput. 30, 1678–1705 (2008)
+123
+
+--- page 36 ---
+62 F. Fang, C. W. Oosterlee
+26. Madan, D.B., Carr, P .R., Chang, E.C.: The V ariance Gamma process and option pricing. Eur. Finance
+Rev. 2, 79–105 (1998)
+27. Merton, R.: Option pricing when underlying stock returns are discontinuous. J. Financial Econ. 3, 125–
+144 (1976)
+28. O’Sullivan, C.: Path dependent option pricing under Lévy processes EFA 2005 Moscow Meetings
+Paper, Available at SSRN: http://ssrn.com/abstract=673424, 2005
+29. Sato, K.-I.: Basic results on Lévy processes. In: Lévy processes, pp. 3–37. Birkhäuser Boston, Boston
+(2001)
+30. Schoutens, W.: Lévy Processes in Finance: Pricing Financial Derivatives. Wiley, London (2003)
+31. Singleton, K.J., Umantsev, L.: Pricing coupon-bond options and swaptions in afﬁne term structure
+models. Math. Finance 12(4), 427–446 (2002)
+32. Surkov, V .: Parallel option pricing with Fourier space time-stepping method on graphics pro-
+cessing units. Preprint Univ. of Toronto, 2007. See: http://papers.ssrn.com/sol3/papers.cfm?
+abstract_id=1020207
+33. Taleb, N.: Dynamic Hedging. Wiley, New Y ork (2002)
+34. Wang, I., Wan, J.W., Forsyth, P .: Robust numerical valuation of European and American options under
+the CGMY process. J. Comp. Finance 10(4), 31–70 (2007)
+35. Wilmott, P .: Derivatives: The Theory and Practice of Financial Engineering. Wiley Frontiers in Finance
+Series, London (1998)
+123

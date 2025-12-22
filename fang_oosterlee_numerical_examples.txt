@@ -1,0 +1,348 @@
+Fang & Oosterlee (2009) – Numerical Examples (extracted)
+Source: fang_oosterlee_american.pdf
+Generated from: fang_oosterlee_extracted.txt
+
+Figures (captions found):
+- page 22: Fig. 1 L versus the logarithm of the absolute errors for pricing calls by the COS method with N = 214,
+- page 24: Fig. 2 Error versus CPU time for pricing Bermudan put options under a BS (Test no. 1) and b CGMY
+- page 27: Fig. 3 The recovered density functions for ( a, the NIG and the CGMY models and monthly-monitored
+- page 30: Fig. 4 The recovered density functions for /Delta1t → 0; a the GBM model with ﬁxed and adapted integration
+- page 31: Fig. 5 Error convergence for increasing M and N. a T = 1 year, b T = 0.1 year
+- page 32: Fig. 6 Convergence of Bermudan options to American options as M →∞
+
+Tables (blocks extracted):
+
+=== page 23: Table 1 Test parameters for pricing Bermudan options ===
+Table 1 Test parameters for pricing Bermudan options
+Test no. Model S0 KT r σ Other parameters
+1 BS 100 110 1 0 .10 .2–
+2 CGMY 100 80 1 0 .10 C = 1, G = 5, M = 5, Y = 1.5
+4 Numerical results
+We will show the method’s impressive convergence by pricing Bermudan,
+American and discretely-monitored barrier options. In the following, we present
+numerical results for the BS, CGMY and NIG models. Extensive tests (not given
+here) have demonstrated that the COS method also shows excellent performance for
+other Lévy processes. The characteristic functions as well as the cumulants for several
+exponential Lévy asset price processes are listed in Appendix B.
+The computer used has an Intel Pentium 4 CPU, 2.80 GHz with cache size 1024 KB;
+The code is written in Matlab 7.4. The CPU times for all experiments to follow are
+averaged over 100 repeated tests.
+In order to observe the exponential error convergence, we deﬁne a ratio,
+ratio = ln
+(⏐⏐err (2
+d+1)
+⏐⏐)
+ln
+(⏐⏐err (2d )
+⏐⏐) , d ∈ Z+, (75)
+where err (2d ) denotes the error between reference solution and approximation
+obtained with N = 2d .I f err (N) = C1 exp(−P1 N) with C1 and P1 not depend-
+ing on N, this ratio should be equal to 2; If the error convergence is algebraic, i.e.
+err (N) = C2 N−P2 with C2 and P2 not depending on N, this ratio should equal
+(d + 1)/d.
+Next to the series and the integration range truncation error, another error for
+Bermudan options is related to the stopping criterion of the root-searching algorithm,
+i.e., Newton’s method. With an initial guess x∗
+m+1 = x∗
+m, m = M − 2,..., 2 (and
+x∗
+M−1 = 0), this error becomes sufﬁciently small, of O(10−7) in 4 Newton iterations
+and of O(10−10) in 5 iterations. In the experiments to follow, we use 5 iterations.
+4.1 Bermudan and American options
+Here we price Bermudan put options with 10 exercise dates. Test parameters for two
+test cases are given in Table 1. These parameters are related to the characteristic func-
+tions presented in Table 8 and the cumulants from Table 9.
+The CPU times are reported in milli-seconds, and all reference values are obtained
+by another method, i.e., by the CONV method from [ 25], setting N = 220.
+The ﬁrst test is for the classical BS model with as the reference value 10 .479520123.
+In Fig. 2a it is shown that a highly accurate solution is obtained in less than 20 ms with
+exponential convergence (the log-error plot displays a straight line). Compared to the
+123
+
+=== page 25: Table 2 Parameters for American put options under the CGMY model ===
+Table 2 Parameters for American put options under the CGMY model
+Test no. S0 KTr Other parameters
+31 1 1 0 .1 C = 1, G = 5, M = 5, Y = 0.5
+
+=== page 25: Table 3 Errors and CPU times ===
+Table 3 Errors and CPU times
+for pricing American puts under
+CGMY model, Test no. 3
+d in Eq. ( 76) COS CONV
+Error Time (ms) Error Time (ms)
+0 4.41e-05 71.41 4.37e-05 134.4
+1 7.69e-06 109.2 7.01e-06 198.0
+2 9.23e-07 219.3 1.05e-06 336.7
+3 3.04e-07 438.9 1.29e-07 610.9
+123
+
+=== page 26: Table 4 Test parameters for pricing barrier options ===
+Table 4 Test parameters for pricing barrier options
+Test no. Model S0 KT r q Other parameters
+4 CGMY 100 100 1 0 .05 0 .02 C = 4, G = 50, M = 60, Y = 0.7
+5 NIG 100 100 1 0 .05 0 .02 α = 15,β =− 5,δ = 0.5
+
+=== page 26: Table 5 Errors and CPU times for pricing monthly-monitored barrier options under the CGMY model ===
+Table 5 Errors and CPU times for pricing monthly-monitored barrier options under the CGMY model
+(Test no. 4)
+Option type Ref. val. N Time (ms) Error Ratio
+DOP 2 .339381026 2 4 2.8 2.23e-1 –
+25 2.7 1.98e-2 2.6
+26 3.4 3.23e-4 2.0
+27 4.6 7.20e-9 2.3
+DOC 9 .155070561 2 4 2.7 5.06e-2 –
+25 2.9 5.67e-3 1.7
+26 3.3 1.99e-4 1.6
+27 4.7 5.55e-9 2.2
+UOP 6 .195603554 2 4 3.0 5.58e-2 –
+25 2.9 8.98e-3 1.6
+26 3.6 1.96e-4 1.8
+27 4.8 2.23e-8 2.1
+UOC 1 .814827593 2 4 2.8 3.38e-1 –
+25 2.8 1.24e-2 4.0
+26 3.5 3.45e-6 2.9
+27 4.7 1.93e-8 1.4
+Next, we focus on the NIG model (Test 5) and repeat the barrier option tests in
+Table 6. To reach the same level of accuracy as for CGMY , we need a slightly larger
+value of N under the NIG model. This is because the NIG density function is more
+peaked with the parameters from Table 4, as shown in Fig. 3a. Consequently, one
+typically requires some more terms in the series to reconstruct the density function
+from its Fourier-cosine series expansion. Nevertheless, the performance of the COS
+method is still excellent: In less than 10 ms, the accuracy is up to the 7-th decimal
+place.
+Note that, the smaller the value of /Delta1t, the larger the value of N needs to be chosen
+to reach the same level of accuracy. This is because many Lévy processes have highly
+peaked density functions for very small /Delta1t. An example is presented in Fig. 3b, where
+the recovered density functions of the NIG model for monthly-, weekly- and daily-
+monitored barrier options are plotted. We can see that for /Delta1t = 1/252 the density is
+highly peaked, compared to /Delta1t = 1/12. Nevertheless, as long as the density function
+is in C
+∞(R), the error convergence rate is exponential.
+123
+
+=== page 27: Table 6 Errors and CPU times for pricing monthly-monitored barrier options under the NIG model (Test ===
+Table 6 Errors and CPU times for pricing monthly-monitored barrier options under the NIG model (Test
+no. 5)
+Option type Ref. val. N Time (ms) Error Ratio
+DOP 2 .139931117 2 6 3.1 4.25e-2 –
+27 3.7 1.28e-3 2.1
+28 5.4 4.65e-5 1.5
+29 8.4 1.39e-7 1.6
+210 14.7 1.38e-12 1.7
+DOC 8 .983106036 2 6 3.1 1.26e-2 –
+27 3.7 1.09e-3 1.6
+28 5.3 3.99e-5 1.5
+29 8.3 9.47e-8 1.6
+210 14.8 5.61e-13 1.7
+UOP 5 .995341168 2 6 3.4 4.84e-3 –
+27 3.7 1.14e-3 1.3
+28 5.3 7.50e-5 1.4
+29 8.3 1.52e-7 1.7
+210 14.7 1.24e-12 1.7
+UOC 2 .277861597 2 6 3.1 3.83e-2 –
+27 3.7 1.10e-3 2.1
+28 5.5 8.67e-5 1.4
+29 8.6 7.98e-8 1.7
+210 15.1 7.38e-13 1.7
+−0.5 0 0.5
+0
+2
+4
+6
+8
+10
+12
+x
+density value
+∆ t=1/12 years
+NIG; Test No. 6
+CGMY; Test No. 5
+(a)
+−0.1 −0.05 0 0.05 0.1 0.15
+0
+20
+40
+60
+80
+100
+120
+140
+160
+x
+density value
+∆ t = 1/12 years
+∆ t = 1/48 years
+∆ t = 1/252 years
+(b)
+Fig. 3 The recovered density functions for ( a, the NIG and the CGMY models and monthly-monitored
+barrier options and b the NIG model for monthly-, weekly- and daily-monitored barrier options. a NIG and
+CGMY with /Delta1t = 1
+12 , b NIG with /Delta1t = 1
+12 , 1
+48 , and 1
+252
+123
+
+=== page 28: Table 7 Errors and CPU times for pricing daily-monitored ( M = 252) barrier options under the NIG ===
+Table 7 Errors and CPU times for pricing daily-monitored ( M = 252) barrier options under the NIG
+model (Test 5)
+Option type Ref. val. N Time (ms) Error Ratio
+DOP 1 .88148753 2 9 130 1.25e-2 –
+210 230 2.20e-3 1.4
+211 460 1.32e-4 1.5
+212 1170 1.98e-6 1.5
+213 2560 4.70e-8 1.3
+DOC 8 .96705248 2 9 140 3.67e-4 –
+210 230 9.18e-5 1.2
+211 460 3.14e-5 1.1
+212 950 2.00e-6 1.3
+213 2430 5.73e-9 1.4
+We now price daily-monitored DOP and DOC options under the NIG model with
+the parameters from Test 5 in Table 4. The reference values are taken from [ 19].
+The results with the COS method are summarized in Table 7. We observe that, as
+expected, the convergence rate of the COS method is exponential, but the values of
+N are somewhat larger than in the previous numerical experiments. The almost linear
+computational complexity of the method can clearly be observed from this table.
+For results accurate up to the 4th digit, the COS method needs about 0.2 seconds
+for the daily-monitored DOP as well as for the DOC.
+Remark 4.2 (Comparison to hilbert transform method) The complexity of the COS
+method is O((M − 1)N log2(N)), as the length of the induction loop (in which the
+FFT is employed) is M −1, and the ﬁnal step uses N operations. Additionally, its error
+convergence is exponential for models with density function in the class C ∞([a,b]).
+By considering both complexity and error convergence, the COS method is as efﬁcient
+as the Hilbert transform method in [ 19]. The experiments above show that the COS
+method is as fast in terms of CPU time (although we have a slower CPU and the code
+is written in Matlab). That method cannot be used to price Bermudan options, as the
+information of the early-exercise points is not known in advance. Moreover, the COS
+method uses more-or-less the same CPU time for different types of barrier options,
+which is not the case in [ 19].
+5 Conclusions and discussion
+In this paper, we have generalized the COS option pricing method, based on
+Fourier-cosine expansions, to Bermudan and discretely-monitored barrier options.
+The method can be used whenever the characteristic function of the underlying price
+process is available (i.e., for regular afﬁne diffusion processes and, in particular, for
+exponential Lévy processes).
+123
+
+=== page 34: Table 8 Characteristic functions of ln (St /K ) for various models ===
+Table 8 Characteristic functions of ln (St /K ) for various models
+BS ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)
+NIG ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)φNIG(ξ, t; α, β, δ)
+φNIG(ξ, t; α, β, δ)= exp
+[
+δt
+(√
+α2 − β2 −
+√
+α2 − (β + iξ)2
+)]
+Kou ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)φKou(ξ, t; λ, p,η1,η2)
+φKou(ξ, t;λ, p,η 1,η2) = exp
+[
+λt
+( pη1
+η1−iξ − (1−p)η2
+η2+iξ − 1
+)]
+Merton ϕ(ξ, t) = exp (iξµt − 1
+2 σ2ξ2t)φMerton(ξ, t;λ, ¯µ, ¯σ)
+φMerton(ξ, t) = exp
+[
+λt
+(
+exp(i ¯µξ − 1
+2 ¯σ2ξ2) − 1
+)]
+VG ϕ(ξ, t) = exp (iξµt)φVG (ξ, t; σ,ν,θ)
+φVG (ξ, t; σ,ν,θ) = (1 − iξθν + 1
+2 σ2νξ 2)−t/ν
+CGMY ϕln(St /K )(ξ, t; x) = exp (iξµt − 1
+2 σ2ξ2t)φCGMY (ξ, t;C, G, M, Y )
+φCGMY (ξ, t;C, G, M, Y ) = exp(Ct /Gamma1(−Y )[(M − iξ)Y − MY + (G + iξ)Y − GY ])
+
+=== page 34: Table 9 Cumulants of ln (St /K ) for various models ===
+Table 9 Cumulants of ln (St /K ) for various models
+BS c1 = (µ − 1
+2 σ2)t, c2 = σ2t, c4 = 0
+NIG c1 = (µ − 1
+2 σ2 + w)t + δtβ/
+√
+α2 − β2
+c2 = δtα2(α2 − β2)−3/2
+c4 = 3δtα2(α2 + 4β2)(α2 − β2)−7/2
+w =− δ(
+√
+α2 − β2 −
+√
+α2 − (β + 1)2)
+Kou c1 = t
+(
+µ + λp
+η1 + λ(1−p)
+η2
+)
+c2 = t
+(
+σ2 + 2 λp
+η2
+1
++ 2 λ(1−p)
+η2
+2
+)
+c4 = 24tλ
+(
+p
+η4
+1
++ 1−p
+η4
+2
+)
+w = λ
+( p
+η1+1 − 1−p
+η2−1
+)
+Merton c1 = t(µ + λ ¯µ) c2 = t
+(
+σ2 + λ ¯µ2 +¯σ2λ
+)
+c4 = tλ
+(
+¯µ4 + 6 ¯σ2 ¯µ2 + 3 ¯σ4λ
+)
+VG c1 = (µ + θ)tc 2 = (σ2 + νθ2)t
+c4 = 3(σ4ν + 2θ4ν3 + 4σ2θ2ν2)t w = 1
+ν ln(1 − θν − σ2ν/2)
+CGMY c1 = µt + Ct /Gamma1(1 − Y )
+(
+MY −1 − GY −1
+)
+c2 = σ2t + Ct /Gamma1(2 − Y )
+(
+MY −2 + GY −2
+)
+c4 = Ct /Gamma1(4 − Y )
+(
+MY −4 + GY −4
+)
+w =− C/Gamma1(−Y )[(M − 1)Y − MY + (G + 1)Y − GY ]
+where w is the drift correction term that satisﬁes exp (−wt) = ϕ(−i, t).
+where t/Psi1(ξ)is the exponent of the characteristic function ϕ(ξ, t), i.e.
+ϕ(ξ, t) = et/Psi1(ξ), t ≥ 0.
+The formulas for the cumulants are summarized in Table 9. They have been conﬁrmed
+with the help of Mathematica.
+123
+
+Reference-value mentions (snippets):
+- page 23: tions presented in Table 8 and the cumulants from Table 9. The CPU times are reported in milli-seconds, and all reference values are obtained by another method, i.e., by the CONV method from [ 25], setting N = 220. The ﬁrst test is for the classical BS model with as the reference value 10 .479520123.
+- page 23: by another method, i.e., by the CONV method from [ 25], setting N = 220. The ﬁrst test is for the classical BS model with as the reference value 10 .479520123. In Fig. 2a it is shown that a highly accurate solution is obtained in less than 20 ms with exponential convergence (the log-error plot displays a straight line). Compared to the
+- page 24: for this test, shown in Fig. 2b is highly efﬁcient. Again, in less than 20 ms, the solution is accurate to 9 digits, compared to the reference value. Also here, we observe the exponential error convergence of the COS method. Remark 4.1 (VG and algebraic convergence) In [ 18] it was shown that for certain sets
+- page 25: Pricing early-exercise and discrete barrier options 51 presented in Table 2,a r et a k e nf r o m[ 1] and the reference value given was V (0) = 0.112152. We deal with the pure Lévy CGMY jump model ( σ = 0) and no dividend payment ( q = 0) here.
+- page 25: The numerical results under the CGMY model (Test 4) are presented in Table 5.T h e CPU times are again measured in milli-seconds, and the reference values are obtained by the CONV method [ 25], with N = 2 15. Note that “ratio”, as presented in the table,
+- page 28: We now price daily-monitored DOP and DOC options under the NIG model with the parameters from Test 5 in Table 4. The reference values are taken from [ 19]. The results with the COS method are summarized in Table 7. We observe that, as expected, the convergence rate of the COS method is exponential, but the values of
+- page 31: The truncation range is deﬁned according to the description in Sect. 3.3. We see a convergence of extreme accuracy, because the reference values are also obtained by the COS method for European options, and therefore the error related to the truncation range cannot be observed.

@@ -1,0 +1,1264 @@
+Fourier Cosine Expansions and Put–Call
+Relations for Bermudan Options
+Bowen Zhang and Cornelis W. Oosterlee
+Abstract In this chapter we describe the pricing of Bermudan options by means of
+Fourier cosine expansions. We propose a technique to price early-exercise call op-
+tions with the help of the (European) put-call parity and put–call duality relations.
+Direct pricing of call options with cosine expansions may give rise to some sensi-
+tivity regarding the choice of the size of the domain in which the Fourier expansion
+is applied. By employing the put–call parity or put–call duality relations, this can be
+avoided so that call options governed by fat-tailed asset price distributions can be
+priced as robust and efﬁciently as put options.
+Bowen Zhang
+Delft Institute of Applied Mathematics, Delft University of Technology, the Netherlands, e-mail:
+bowen.zhang@tudelft.nl
+Cornelis W. Oosterlee
+CWI - Center for Mathematics and Computer Science, Amsterdam, and Delft University of Tech-
+nology, the Netherlands e-mail: c.w.oosterlee@cwi.nl
+1
+
+2 Bowen Zhang and Cornelis W. Oosterlee
+1 Introduction
+Numerical integration methods are traditionally very efﬁcient for the valuation of
+single asset European options. They are also referred to as “transform methods”
+as a transformation, for example to the Fourier domain, is often combined with
+numerical integration [ 8,13,20]. The transform methods can readily be used with
+asset price models for which the characteristic function (i.e., the Fourier transform
+of the probability density function) is available.
+Next to Fourier-based transform methods, techniques based on the Gauss or the
+Hilbert Transform have also been introduced [ 5,6,15,24]. A contribution of our
+research group to the development of the transform methods is the COS method [ 13,
+14], which is based on Fourier cosine expansions and converges exponentially in the
+number of terms in the cosine expansion.
+Recently, transform methods have been generalized to pricing options with early-
+exercise features. The key idea is to set up a time lattice on each early-exercise
+date and view the option as “European style” between two adjacent lattices. Pricing
+an early-exercisable option usually involves two steps: recovery of the probability
+density function and computation of the integral that appears in the risk-neutral
+valuation formula. Some of existing methods employ quadrature rules in both steps,
+see for example [ 19,11,2,3,17]. We will detail the generalization of the COS
+method to pricing Bermudan options here.
+The purpose of the present chapter is two-fold. First of all, we present the COS
+method, focusing on options with early-exercise features, like Bermudan and Amer-
+ican options. Secondly, we present a novel component for the robust pricing of call
+options, where we use the put–call parity and the put–call duality relations for the
+valuation of Bermudan call options.
+When pricing call options with the COS method, the method’s accuracy may
+exhibit sensitivity regarding the choice of the domain in which the series expansion
+is deﬁned. A call payoff grows exponentially with the log-stock price which may
+introduce signiﬁcant cancellation errors for large domain sizes . Put options do not
+suffer from this, as their payoff value is bounded by the strike value. For pricing
+European calls, one can employ the well-known put–call parity or put–call duality
+and price calls via puts. Here, we generalize this concept, so that we can also apply
+the put-call parity or put–call duality when pricing Bermudan call options.
+The outline of this chapter is as follows: We will introduce the COS method for
+European options in Section 2, as well as the choice of computational domain. We
+will focus on L ´evy asset price dynamics. In Section 3 the COS method is explained
+for Bermudan options and error analysis is included for call options. The generaliza-
+tion of the put–call parity and put–call duality is presented in Section 4. Section 5
+then presents a variety of numerical results, conﬁrming our robust version of the
+COS valuation method.
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 3
+2 Preliminaries
+We will discuss asset dynamics in this section and focus on L ´evy processes. We
+also review the COS method for European options and the choice of computational
+domain for this method.
+2.1 Exponential L ´evy Asset Dynamics
+An asset is modeled here by an exponential L ´evy process (e.g. Geometric Brownian
+Motion, the Variance Gamma (VG) model [ 21], the CGMY model [ 7], the Normal
+Inverse Gaussian model [ 4], . . . ).
+The asset price can be written as an exponential function of L ´evy process, Ltas
+follows:
+St=S0exp(Lt). (1)
+For ease of exposure we assume that the asset pays a continuous stream of dividends,
+measured by the dividend rate, q. In addition, we assume the existence of a bank
+account, Bt, which evolves according to dBt=rBtdt, with rbeing the (deterministic)
+risk-free rate. Recall that a process Lton(Ω,J,P), with L0=0, is a L ´evy process
+if it has independent increments, it has stationary increments, and it is stochastically
+continuous, i.e., for any t≥0 and ε>0 we have
+lim
+s→tP(|Lt−Ls|>ε) =0. (2)
+A L´evy process can be characterized by a triplet (µ,σ,ν)withµ∈R,σ≥0 and ν
+a measure satisfying ν(0) =0 and
+/integraldisplay
+Rmin(1,|x|2)ν(dx)<∞. (3)
+In terms of this triplet the characteristic function of the L ´evy process equals:
+φ(u,t) =E[exp(iuLt)]
+=exp(t(iµu−1
+2σ2u2+/integraldisplay
+R(eiux−1−iux1[|x|<1]ν(dx))), (4)
+the celebrated L ´evy-Khinchine formula. As is common in most models nowadays
+we assume that Equation ( 1) is formulated directly under the risk-neutral measure.
+To ensure that the reinvested relative price eqtSt/Btis a martingale under the risk-
+neutral measure, we need to ensure that
+φ(−i,t) =E[exp(Lt)] = e(r−q)t, (5)
+which is satisﬁed if the drift µis chosen as:
+
+4 Bowen Zhang and Cornelis W. Oosterlee
+µ=r−q−1
+2σ2−/integraldisplay
+R(ex−1−x1[|x|<1])ν(dx) (6)
+Based on Equation ( 1) we deﬁne:
+ln(St/K) =ln(S0/K) +Lt:=x+Lt.
+The characteristic function of ln (St/K)is denoted by ϕ(u,x;t)and reads:
+ϕ(u,x;t):=eiuxφ(u,t) =eiuxE(exp(iuLt)). (7)
+Characteristic functions for several exponential L ´evy processes are available in [ 10,
+23].
+2.2 The Fourier Cosine Method (COS) for European options
+The Fourier cosine pricing method ” COS” is based on the risk-neutral option valu-
+ation formula (discounted expected payoff approach):
+v(x,t0) =e−r∆t/integraldisplay∞
+−∞v(y,T)f(y|x)dy, (8)
+where v(x,t0)is the present option value, rthe interest rate, ∆t=T−t0andx,ycan
+be any monotone function of the underlying asset at initial time t0and the expira-
+tion date T. Function v(y,T), which equals payoff function g(y), is known, but the
+transitional density function, f(y|x)in (8), typically is not.
+We approximate the conditional density function on a truncated domain, by a
+truncated Fourier cosine expansion, which recovers the conditional density function
+from its characteristic function (see [ 13]) as follows:
+f(y|x)≈2
+b−aN−1/summationdisplay/prime
+k=0Re/parenleftbigg
+ϕ(kπ
+b−a,x;∆t)exp(−iakπ
+b−a)/parenrightbigg
+cos(kπy−a
+b−a),(9)
+with ϕ(u,x;t)the characteristic function of f(y|x);a,bdetermine the truncated
+domain and Remeans taking the real part of the argument. The prime at the sum
+symbol indicates that the ﬁrst term in the expansion is multiplied by one-half. The
+size of the truncated domain can be determined with the help of the cumulants [ 13]1,
+discussed in Section 2.3.
+Replacing f(y|x)by its approximation ( 9) in Equation ( 8) and interchanging inte-
+gration and summation gives the COS formula for computing the values of European
+options:
+1For example so that |R
+Rf(y|x)dy−Rb
+af(y|x)dy|<TOL.
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 5
+v(x,t0) =e−r∆tN−1/summationdisplay/prime
+k=0Re(ϕ(kπ
+b−a,x;∆t)e−ikπa
+b−a)Vk, (10)
+where:
+Vk=2
+b−a/integraldisplayb
+av(y,T)cos(kπy−a
+b−a)dy,
+are the Fourier cosine coefﬁcients of v(y,T), that are available in closed form for
+several payoff functions, like for plain vanilla puts and calls, but also for example
+for discontinuous payoffs like for digital options.
+It was found by a rigorous analysis in [ 13], that, with integration interval [a,b]
+chosen sufﬁciently wide, the series truncation error dominates the overall error. For
+conditional density functions f(y|x)∈C∞((a,b)⊂R), the method converges expo-
+nentially; otherwise convergence is algebraically [ 14].
+Formula ( 10) also forms the basis for the pricing of Bermudan options [ 14].
+2.3 Truncation Range and Put–Call Relations
+The choice of integration range, [a,b], is quite important. An interval which is cho-
+sen too small or too wide will lead to signiﬁcant integration-range errors.
+We use the deﬁnition of the integration (also called truncation) range as given [ 13]
+and we center the domain at x0:=ln(S0/K), i.e.
+[a,b]:=/bracketleftbigg
+(ξ1+x0)−L/radicalBig
+ξ2+/radicalbig
+ξ4,(ξ1+x0) +L/radicalBig
+ξ2+/radicalbig
+ξ4/bracketrightbigg
+, (11)
+with L∈[6,12]depending on a user-deﬁned tolerance level , TOL and ξ1,...,ξ4
+being the cumulants of the underlying stochastic process. The error connected to
+the size of the domain decreases exponentially with L.
+Given the characteristic functions, the cumulants, as deﬁned in [ 10], can be com-
+puted via
+ξn(X) =1
+in∂n(tΨ(u))
+∂un/vextendsingle/vextendsingle/vextendsingle/vextendsingle
+u=0,
+where tΨ(u)is the logarithm of the characteristic function φ(u,t), i.e.
+φ(u,t) =etΨ(u),t≥0.
+However, when pricing call options , the solution’s accuracy exhibits sensitivity re-
+garding the size of this truncated domain. This holds speciﬁcally for call options
+under fat-tailed distributions, like under certain L ´evy jump processes, or for options
+with a very long time to maturity2. A call payoff grows exponentially in log–stock
+price which may introduce cancellation errors for large domain sizes. A put option
+2This is mainly the case when we consider real options or insurance products with a long life time.
+
+6 Bowen Zhang and Cornelis W. Oosterlee
+does not suffer from this (see [ 14]), as their payoff value is bounded by the strike
+value. In [ 13], European call options were therefore priced by means of European
+put option computations, in combination with the put-call parity :
+vcall(x,t) =vput(x,t) +Ste−q(T−t)−Ke−r(T−t), (12)
+where vcall(x,t)andvput(x,t)are the call and put option prices, respectively, and q
+is again the dividend rate.
+Alternatively, one can use the put–call duality relation (see also [ 12]):
+vcall(S,K,r,q,t,ν) =vput(K,S,q,r,t,e−xν(−dx)), (13)
+where3measure ν(dx)is the same as in ( 4) and ( 6). In the case that
+ν(dx) =e−xν(−dx)
+is satisﬁed (for L ´evy processes without any jumps, for example), Eqn. ( 13) simpli-
+ﬁes:
+vcall(S,K,r,q) =vput(K,S,q,r).
+2.3.1 European Option Results
+Figures 1and2present European call option values under the inﬁnite activity L ´evy
+CGMY jump model, see [ 7]. The option values obtained by pricing call options
+directly by the COS method (solid lines) are compared to the values calculated with
+the put–call parity and put–call duality relations (dotted lines), for different values of
+parameter L, which determines the sizes of the truncated domain in ( 11). Reference
+solutions are obtained on a very ﬁne grid.
+The asset price parameters read S0=100,K=110,r=0.1,q=0.05, and the
+CGMY parameters are chosen as C=1,G=5,M=5. For Figure 1, with the re-
+maining CGMY parameter Y=1.5, and with T=5, the reference value for the
+European option is 66 .474333 ...and in Figure 2we set Y=1.98, and T=0.1 for
+which the reference value is 86 .826264 ....
+As shown in Figures 1and2, the errors appearing, when call prices are directly
+computed with the COS method, increase for large Y- and T-values, since then the
+probability density function of the underlying is governed by fat tails. The errors
+grow drastically as L, i.e. the size of the computational domain, increases. It seems
+that the choice L=6 results in accurate values in these tests, but this choice is
+heuristic.
+The option prices obtained by the put–call parity or the put–call duality do not
+deviate from the reference solutions in both test cases, for all integration ranges. The
+parity and duality lead to robust formulas for pricing European call options by the
+COS method.
+3Here we have a long list of arguments, as they are important for the use of the put-call duality.
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 7
+(a) Put-Call Parity
+ (b) Put-Call Duality
+Fig. 1 Comparison of European call option values, directly obtained by the COS method, with
+those obtained by the put–call parity and the put–call duality, CGMY model, Y=1.5,T=5,
+L∈[8,10].
+(a) Put-Call Parity
+ (b) Put-Call Duality
+Fig. 2 Comparison of European call option values, directly obtained by the COS method, with
+those obtained by the put–call parity or put–call duality, CGMY model, Y=1.98,T=0.1,L∈
+[8,10].
+3 Pricing Early-Exercise Options
+A Bermudan option can be exercised at pre-speciﬁed dates before maturity. The
+holder receives the exercise payoff when she exercises the option. We have again t0
+as initial time and {t1,···,tM}the collection of exercise dates with ∆t:= (tm−tm−1),
+t0<t1<···<tM=T. The pricing formula for a Bermudan option with Mexercise
+dates then reads, for m=M,M−1,..., 2:
+/braceleftBiggc(x,tm−1) =e−r∆t/integraltext
+Rv(y,tm)f(y|x)dy,
+v(x,tm−1) =max (g(x),c(x,tm−1)),(14)
+
+8 Bowen Zhang and Cornelis W. Oosterlee
+followed by
+v(x,t0) =e−r∆t/integraldisplay
+Rv(y,t1)f(y|x)dy. (15)
+Functions v(x,t),c(x,t)andg(x)are the option value, the continuation value and
+the payoff at time t, respectively. For call and put options, g(x)≡v(x,T), with
+v(x,T) =max [αK(ex−1),0],α=/braceleftbigg
+1 for a call,
+−1 for a put,(16)
+where xandyare state variables, deﬁned as
+x:=ln(S(tm−1)/K)and y:=ln(S(tm)/K).
+3.1 Pricing Bermudan Options by the COS Method
+The continuation value in ( 14) can be deﬁned by means of the COS formula. For
+exponential L ´evy processes it reads:
+c(x,tm−1) =e−r∆tN−1/summationdisplay/prime
+k=0Re/braceleftbigg
+φ/parenleftbiggkπ
+b−a,∆t/parenrightbigg
+eikπx−a
+b−a/bracerightbigg
+Vk(tm), (17)
+where φ(u,t):=ϕ(u,0;t), as deﬁned in ( 7).
+The technique of pricing Bermudan options by the COS method is based on
+the computation of the Fourier cosine coefﬁcients of the option value at t1,Vk(t1),
+which are then inserted into ( 15). The derivation of an induction formula for Vk(t1),
+backwards in time, was the basis of the work in [ 14]. It is brieﬂy explained here.
+First, the early-exercise point ,x∗
+m, at time tm, which is the point where the con-
+tinuation value equals the payoff, i.e., c(x∗
+m,tm) =g(x∗
+m), is determined for example
+by Newton’s method.
+Based on x∗
+m, we can split Vk(tm)in Eqn. ( 17) into two parts: One on the interval
+[a,x∗
+m]and another on (x∗
+m,b], i.e.
+Vk(tm) =/braceleftBiggCk(a,x∗
+m,tm) +Gk(x∗
+m,b),for a call,
+Gk(a,x∗
+m) +Ck(x∗
+m,b,tm),for a put,(18)
+form=M−1,M−2,···,1, where
+Vk(tM) =/braceleftBiggGk(0,b),for a call,
+Gk(a,0),for a put.(19)
+We have:
+Gk(x1,x2):=2
+b−a/integraldisplayx2
+x1g(x)cos/parenleftbigg
+kπx−a
+b−a/parenrightbigg
+dx, (20)
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 9
+and
+Ck(x1,x2,tm):=2
+b−a/integraldisplayx2
+x1c(x,tm)cos/parenleftbigg
+kπx−a
+b−a/parenrightbigg
+dx. (21)
+Fork=0,1,···,N−1 and m=1,2,···,M, the Gk(x1,x2)in (20) admit analytic
+solutions, and the challenge is to compute the Ck-coefﬁcients efﬁciently.
+We can generally write characteristic functions as:
+ϕ(u,x;τ) =eiuxβφ(u,τ), (22)
+withφ(u,τ)not depending on x.
+By (22), we can distinguish basically two types of stochastic processes in view
+of their characteristic functions. The ﬁrst type, governed by β=1, which corre-
+sponds to a process with independent increments, includes the exponential L ´evy
+processes, for which the characteristic function can thus be written in the form
+ϕ(u,x;τ) =eiuxφ(u,τ). Examples for these are the log-versions of Geometric Brow-
+nian Motion, jump-diffusion processes of Kou [ 18] and Merton [ 22], inﬁnite activ-
+ity L ´evy processes [ 10], like Variance-Gamma (VG) [ 21], Normal Inverse Gaussian
+(NIG) [ 4] or CGMY [ 7].
+For the second type of processes, φ(u,x;t)cannot be written as the product of
+eiuxand a function independent of x. An example is the OU mean reverting process,
+for which β=e−κτin (22), with κa mean reversion parameter.
+In the lemma to follow we will see that characteristic functions of the ﬁrst type
+(β=1) are beneﬁcial for pricing Bermudan options by the COS method as the Fast
+Fourier Transform can be applied.
+Lemma 3.1 (Efﬁcient Computation) .The terms C k(x1,x2,tm)can be computed in
+O(Nlog2N)operations, if the stochastic process for the underlying is governed by
+general characteristic function ( 22) with parameter β=1.
+Proof. At times tm,m=1,2,···,M, from Equations ( 14) and ( 17), we obtain an ap-
+proximation for c(x,tm), the continuation value at tm, which is inserted into ( 21). In-
+terchanging summation and integration gives the following coefﬁcients, Ck(x1,x2,tm):
+Ck(x1,x2,tm):=e−r∆tN−1/summationdisplay/prime
+j=0Re/parenleftbigg
+φ/parenleftbiggjπ
+b−a,∆t/parenrightbigg
+Vj(tm+1)·Hk,j(x1,x2)/parenrightbigg
+, (23)
+where φ(u,∆t)comes from the general expression for the characteristic func-
+tion ( 22). To get Ck(x1,x2,tm), the following integrals need to be computed:
+Hk,j(x1,x2) =2
+b−a/integraldisplayx2
+x1ei jπβx−a
+b−acos(kπx−a
+b−a)dx,
+withβdeﬁned in ( 22).
+By basic calculus, we can split Hk,j(x1,x2)into two parts as
+
+10 Bowen Zhang and Cornelis W. Oosterlee
+Hk,j(x1,x2) =−i
+π(Hs
+k,j(x1,x2) +Hc
+k,j(x1,x2)),
+where
+Hc
+k,j(x1,x2) =
+
+(x2−x1)πi
+b−a, ifk=j=0,
+1
+(jβ+k)/bracketleftbigg
+exp/parenleftbigg
+((jβ+k)x2−(j+k)a)πi
+b−a/parenrightbigg
+−
+exp/parenleftbigg
+((jβ+k)x1−(j+k)a)πi
+b−a/parenrightbigg/bracketrightbigg
+,otherwise.
+(24)
+and
+Hs
+k,j(x1,x2) =
+
+(x2−x1)πi
+b−a, ifk=j=0,
+1
+(jβ−k)/bracketleftbigg
+exp/parenleftbigg
+((jβ−k)x2−(j−k)a)πi
+b−a/parenrightbigg
+−
+exp/parenleftbigg
+((jβ−k)x1−(j−k)a)πi
+b−a/parenrightbigg/bracketrightbigg
+,otherwise.
+(25)
+Matrices HsandHchave a Toeplitz and Hankel structure, respectively, if Hs
+k,j(x1,x2) =
+Hs
+k+1,j+1(x1,x2)andHc
+k,j(x1,x2) =Hc
+k+1,j−1(x1,x2),which is the case for β≡1. In
+other words, pricing Bermudan options can be done highly efﬁciently when expo-
+nential L ´evy asset price models are employed. Then, the Fast Fourier Transform can
+be applied directly for matrix-vector multiplication [ 14], and the resulting compu-
+tational complexity of Ck(x1,x2,tm)isO(Nlog2N). /intersectionsq /unionsq
+We would obtain terms of the form jβ−k,jβ+kin the matrix elements in ( 24)
+and ( 25), instead of terms with j−k,j+kifβ/negationslash=1 in ( 22). Terms with βnot being
+an integer hamper an efﬁcient computation of the matrix-vector products, leading to
+computations with O(N2)complexity.
+3.1.1 American Options
+For the valuation of American options by the COS method, there are basically two
+approaches. One is to approximate an American option by a Bermudan option with
+many exercise opportunities, the other is to use repeated Richardson extrapolation
+on a series of Bermudan options with an increasing number of exercise opportu-
+nities. Here we will focus on the extrapolation-based method, which has been de-
+scribed in detail in [ 9], although the approach dates back to [ 16].
+Let here ˆ v(M)be the price of a Bermudan option with Mexercise dates with a
+maturity of Tyears where the exercise dates are ∆t=T/Myears apart. It is assumed
+that ˆv(M)can be expanded as:
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 11
+ˆv(M) =vAM+∞/summationdisplay
+i=1ai(∆t)γi, (26)
+with 0 <γi<γi+1;vAMis the American option value. Classical extrapolation pro-
+cedures assume that the exponents γiare known, which means that we can use n+1
+Bermudan prices with varying ∆tto eliminate the nleading order terms in ( 26).
+The prices of American options can be obtained by applying repeated Richardson
+extrapolation on the values of a few Bermudan options with small M. We use the
+following 4-point repeated Richardson extrapolation scheme,
+ˆvAM(M) =1
+21(64 ˆv(8M)−56 ˆv(4M) +14 ˆv(2M)−ˆv(M)), (27)
+where ˆ vAM(M)denotes the approximated value of the American option4.
+3.2 Error Analysis
+In this subsection we give error analysis for the COS pricing method, focusing on
+Bermudan call options . First, we analyze the local error, i.e., the error in the contin-
+uation values at each time step. A similar error analysis has been performed in [ 13],
+where, however, the inﬂuence of the call payoff function on the global error con-
+vergence was omitted.Here, we study the inﬂuence of the payoff function and the
+integration range on the error convergence.
+3.2.1 Local Error
+It has been shown, [ 13], that the error of the COS method for the error in the con-
+tinuation value consists of three parts, denoted by ε1,ε2andε3, respectively.
+Error ε1is the integration range error
+|ε1(x,[a,b])|=e−r∆t/integraldisplay
+R\[a,b]v(y,T)f(y|x)dy,
+which depends on the payoff function and the integration range.
+Error ε2is the series truncation error on [a,b], which depends on the smoothness
+of the probability density function of the underlying processes:
+ε2(x;N,[a,b]):=e−r∆t∞/summationdisplay
+k=NRe/braceleftBigg
+e−ikπa
+b−a/integraldisplayb
+aeikπ
+b−ayf(y|x)dy/bracerightBigg
+·Vk. (28)
+4Without any dividend payments, of course, the American call option value is equal to the Euro-
+pean call option value.
+
+12 Bowen Zhang and Cornelis W. Oosterlee
+For probability density functions f(y|x)∈C∞[a,b], we have
+|ε2(x,N,[a,b])|<Pexp(−(N−1)ν),
+where Nis the number of terms in the Fourier cosine expansions, ν>0 is a constant
+andPis a term which varies less than exponentially with respect to N. When the
+probability density function has a discontinuous derivative, then the Fourier cosine
+expansions converge algebraically,
+|ε2(x,N,[a,b])|<P
+(N−1)β−1,
+where Pis a constant and β≥1 is the algebraic index of convergence.
+Error ε3is the error related to the approximation of the Fourier cosine coefﬁcients
+of the density function in terms of its characteristic function, which reads
+|ε3(x,N,[a,b])|=e−r∆tN−1/summationdisplay/prime
+k=0Re(/integraldisplay
+R\[a,b]eikπy−a
+b−af(y|x)dy)Vk.
+It can be shown that
+|ε3(x,N,[a,b])|<e−r∆tQ1/integraldisplay
+R\[a,b]f(y|x)dy,
+where Q1is a constant independent of N and ∆t.
+We denote by
+I1=/integraldisplay
+R\[a,b]v(y,T)f(y|x)dy,I2=/integraldisplay
+R\[a,b]f(y|x)dy,
+so that ε1=e−r∆tI1,ε3<e−r∆tQ1I2. Integral I1then depends on the payoff function
+and the integration range, whereas I2depends only on the integration range.
+We start with a discussion about the inﬂuence of the payoff function on the error
+convergence and then we analyze the inﬂuence of Lin (11).
+For an option with a bounded payoff function, such as a put option or a swing
+option studied in [ 25], we have ∀y,v(y,T)≤Q2, so that it follows directly that
+I1≤Q2I2, (29)
+and both ε1andε3can be controlled by means of parameter L. This was the basis
+for the detailed error analysis for Bermudan put options in [ 14].
+However, in the case of an unbounded payoff, for instance, a call option, we have:
+I1=/integraldisplay
+R\[a,b]v(y,T)f(y|x)dy≥/integraldisplay∞
+bv(y,T)f(y|x)dy
+=/integraldisplay∞
+b(Key−K)+f(y|x)dy≥K(eb−1)/integraldisplay∞
+bf(y|x)dy. (30)
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 13
+Note that we assume that b≥0, as otherwise for all y∈[a,b],v(y,T) =0 and the
+option value is also zero.
+Function/integraltext∞
+bf(y|x)dyis bounded by 0 </integraltext∞
+bf(y|x)dy<1.
+Denoting by Q3/definesK/integraltext∞
+bf(y|x)dythen
+I1≥Q3(eb−1).
+Function eb−1 will, however, not decrease to zero as N, the number of terms in
+the Fourier cosine expansion, goes to inﬁnity. Furthermore, the larger the integration
+range, the larger the value eb−1, i.e. the error in the option price. Given the fact that
+ε1=e−r∆tQ3(eb−1), the global error in the call option price may increase as the
+integration range [a,b](orL) increases. This implies that when we directly use the
+COS formula for a call option, the value may diverge, depending on the decay rate
+off(y|x). This is not the case if a very small integration range (or a very small value
+ofL) is used, but by this error ε3may increase. This is the next topic in the error
+analysis.
+To study the inﬂuence of truncation on the error convergence, we start the analy-
+sis with the Black–Scholes model. From the cumulative density function (which is
+known analytically) it follows that with L=6, we ﬁnd I2=1.9732×10−9and with
+L=8, we have I2=1.3323×10−15, so that with L∈[6,8]the errors ε1andε3can
+be controlled. Incorporating jumps in a L ´evy model gives rise to a slightly larger
+value of L. As shown in [ 14], an integration range with L∈[8,10]is sufﬁcient for
+most of the L ´evy processes with T>0.1 to bound I2(but not always for I1).
+In general, from Chebyshev’s inequality we know that for any random variable X
+with expected value µand ﬁnite variance σand for any real number k>0,Pr(|X−
+µ| ≥kσ)≤1
+k2, which implies
+I2(x0) =/integraldisplay
+R\[a,b]f(y|x0)dy=Pr(|XT−(ξ1+x0)| ≥L(ξ2+/radicalbig
+ξ4))
+≤Pr(|XT−(ξ1+x0)| ≥L(ξ2))≤1
+L2.
+Therefore for all processes and model parameters, I2decays at least algebraically
+with algebraic index n≥2.
+4 Pricing Bermudan Call Options Using the Put-Call Relations
+In this section, we present two techniques to deal efﬁciently with the inaccurate
+pricing with the COS method of Bermudan call options. With our new methods, the
+Fourier cosine coefﬁcients of call options need not to be calculated directly at each
+time step, which will eliminate the error due to unbounded payoff of call options. In
+Section 4.1 we discuss the use of the put-call parity relation, and in Section 4.2 we
+
+14 Bowen Zhang and Cornelis W. Oosterlee
+explain the use of the put-call duality relation. These techniques are accompanied
+by error analysis in Section 4.3.
+4.1 The Put–Call Parity
+Here we give details of the use of the European put-call parity for the robust pricing
+ofBermudan call options by means of the COS method.
+At each time step we need to calculate the continuation value based on the Fourier
+coefﬁcients of the call option payoff. The continuation value is then used to deter-
+mine the early–exercise points, as well as to recover the Fourier cosine coefﬁcients
+for a next time step. In these steps, the inﬂuence of an exponentially–increasing
+payoff can be signiﬁcant as for European call options. Here, we modify the pricing
+algorithm for Bermudan call options employing put–call parity ( 12).
+We denote the Fourier cosine coefﬁcients for a put and a call option at tM=Tby
+Vput
+k(tM)andVcall
+k(tM), respectively. By ( 12) we then ﬁnd
+e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Vcall
+k(tM) =
+Ste−q∆t−Ke−r∆t+e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Vput
+k(tM).(31)
+We have Vput
+k(tM) =Gput
+k(a,0)andVcall
+k(tM) =Gcall
+k(0,b), where Gput
+kandGcall
+kare
+the Fourier cosine coefﬁcients for the respective payoffs. So, we can write ( 31) as:
+e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Gcall
+k(0,b) =Se−q∆t−Ke−r∆t+
+e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Gput
+k(a,0). (32)
+Equation ( 32) will be used in the backward recursion.
+Att=M−1, we ﬁrst determine the early–exercise point, x∗
+M−1, by Newton’s
+method, for which the functions c,g,∂c/∂x,∂g/∂xare required. The continuation
+value for the call option now reads, using ( 31):
+c(x,tM−1) =e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Vput
+k(tM) +Kexe−q∆t−Ke−r∆t,(33)
+with x=log(S/K), and similarly we ﬁnd:
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 15
+∂c
+∂x=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a(ikπ
+b−a))Vput
+k(tM) +Kexe−q∆t.(34)
+With x≥0, we have g(x) =Kex−Kand∂g/∂x=Kex, whereas for x<0 both the
+payoff and its derivative are zero, for all time steps.
+With the early-exercise point determined, we need to compute the values,
+Vcall
+k(tM−1):=Ccall
+k(a,x∗
+M−1,tM−1) +Gcall
+k(x∗
+M−1,b). (35)
+Application of ( 33) gives us:
+Ccall
+k(a,x∗
+M−1,tM−1) =2
+b−a/integraldisplayx∗
+M−1
+ac(x,tM−1)cos(kπx−a
+b−a)dx
+=e−r∆t
+πIm(Hc+Hs)u+2
+b−aKe−q∆tχ(a,x∗
+M−1)
+−2
+b−aKe−r∆tψ(a,x∗
+M−1) (36)
+where Immeans taking the imaginary part, vector uconsists of values:
+uj=φ(kπ
+b−a,∆t)Vput
+j(tM),j=1,···,N−1,
+andu0=1
+2φ(0,∆t)Vput
+0(tM). Matrices Hc,Hsare as in Equations ( 24) and ( 25), with
+β=1. Moreover,
+χ(x1,x2) =/integraldisplayx2
+x1excos(kπ(x−a)
+b−a)dx,ψ(x1,x2) =/integraldisplayx2
+x1cos(kπ(x−a)
+b−a)dx,(37)
+both of which have an analytic solution.
+We further have Gcall
+k(x∗
+M−1,b) =Gcall
+k(0,b)−Gcall
+k(0,x∗
+M−1), and∀x∈(0,x∗
+M−1)
+the payoff of a call option is less than the continuation value. Therefore, Gcall
+k(0,x∗
+M−1)
+can be calculated directly and it will remain accurate, independent of the choice of
+integration range. Quantity Gcall
+k(0,b)will be replaced by Gput
+k(a,0)via (32).
+We now arrive at the following lemma:
+Lemma 4.1. Quantities c (x,tm), x∗
+m, and Ccall
+k(a,x∗,tm)can be recovered from
+Ccall
+k(a,x∗
+m+1,tm+1)in an accurate way for m =M−2,..., 1, with a computational
+complexity of O (Nlog2N)at each time step. Ccall
+k(a,x∗
+1,t1)is then ﬁnally also re-
+covered in a robust way.
+Proof. At the time steps tm,m=M−2,···,1, the continuation value reads
+
+16 Bowen Zhang and Cornelis W. Oosterlee
+c(x,tm) =e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Vcall
+k(tm+1)
+=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)(Ccall
+k(a,x∗
+m+1,tm+1)−Gcall
+k(0,x∗
+m+1)) +
+e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Gcall
+k(0,b)
+=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)(Ccall
+k(a,x∗
+m+1,tm+1) +
+Gput
+k(a,0)−Gcall
+k(0,x∗
+m+1)) +Kexe−q∆t−Ke−r∆t, (38)
+where the last step is from ( 32). Derivative ∂c/∂xcan be obtained similarly. To-
+gether with g(x)and∂g/∂x, they are used to determine early–exercise point x∗
+mat
+tm.
+Furthermore,
+Ccall
+k(a,x∗
+m,tm) =e−r∆t
+πIm(Hc+Hs)u+2
+b−aKe−q∆tχ(a,x∗
+m)
+−2
+b−aKe−r∆tψ(a,x∗
+m),
+where Hc,Hsare as deﬁned earlier in Equations ( 24) and ( 25) with β=1 and vector
+uconsists of elements:
+uj=φ(kπ
+b−a,∆t)(Ccall
+j(a,x∗
+m+1,tm+1) +Gput
+j(a,0)−Gcall
+j(0,x∗
+m+1)), (39)
+and
+u0=1
+2φ(0,∆t)(Ccall
+0(a,x∗
+m+1,tm+1) +Gput
+0(a,0)−Gcall
+0(0,x∗
+m+1)). (40)
+Regarding the computational costs, at each time step Ccall
+k(a,x∗
+m,tm)needs to
+be calculated once. Therefore we have the same computational complexity as the
+original COS method, which is O(M−1)Nlog2N.
+Finally, the two terms Gput
+k(a,0)andGcall
+k(0,x∗
+m)attmadmit analytic solutions.
+Att0we have
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 17
+v(x,t0) =e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)Vk(t1)
+=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t)ei(x−a)kπ
+b−a)(Ccall
+k(a,x∗
+1,t1) +Gput
+k(a,0)−Gcall
+k(0,x∗
+1))
++Kexe−q∆t−Ke−r∆t, (41)
+where the last step follows from ( 32) and we complete the robust and efﬁcient pric-
+ing of Bermudan options via the put-call parity relation. /intersectionsq /unionsq
+4.2 The Put–Call Duality
+In this section, we discuss a second possibility to price a Bermudan call with the
+help of the pricing formula for a put. It is based on the put-call duality from [ 12].
+In the COS pricing formula ( 10),r,q,ν(dx)are essential in the deﬁnition of the
+characteristic function φ, whereas SandKenter the formula for the Fourier cosine
+coefﬁcients, Vk. Therefore, we use in this section the notation φ:=φ(u,t,r,q,ν).
+Moreover, we use Vcall
+k(tm,S,K),Vput
+k(tm,S,K),Vk(tm)to denote the Fourier cosine
+coefﬁcients of European call options (with stock price Sand strike price K), of
+European put options and the Fourier cosine coefﬁcients of a Bermudan option at
+tm, respectively. We also denote e−xν(dx)by˜ν(dx).
+We start at tM=T. From tMtotM−1the direct application of ( 13) gives us
+c(x,tM−1) =e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,r,q,ν)ei(x−a)kπ
+b−a)Vcall
+k(tM,S,K)
+=e−q∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,q,r,˜ν)ei(−x−a)kπ
+b−a)Vput
+k(tM,K,S)(42)
+where Vcall
+k(tM,S,K) =Gcall
+k(0,b), and
+Vput
+k(tM,K,S) =2
+b−a/integraldisplay
+(S−Sey)cos(kπy−a
+b−a)dy
+=2K
+b−aex/integraldisplay
+(1−ey)cos(kπy−a
+b−a)dy=exGput
+k(a,0).
+Note that for both SandKas state variables in the put–call duality formulation,
+integration ranges need to be deﬁned. We set a=min(aS,aK),b=max(bS,bK).
+The use of ” −x” in the second equation in ( 42) appears because the state variable
+log(K/S) =−log(S/K) =−x.
+AttM−1the continuation value and its derivative read:
+
+18 Bowen Zhang and Cornelis W. Oosterlee
+c(x,tM−1) =e−q∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,q,r,˜ν)ei(−x−a)kπ
+b−a)exGput
+k(a,0), (43)
+∂c(x,tM−1)
+∂x=e−q∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,q,r,˜ν)ei(−x−a)kπ
+b−a(−ikπ
+b−a))exGput
+k(a,0)
++c(x,tM−1),
+which are used to calculate the early–exercise point x∗
+M−1by Newton’s method, so
+that
+Vk(tM−1) =Ck(a,x∗
+M−1) +Gcall
+k(x∗
+M−1,b)
+=Ck(a,x∗
+M−1,tM−1)−Gcall
+k(0,x∗
+M−1) +Gcall
+k(0,b) (44)
+Now, ∀x∈(0,x∗
+M−1)the payoff of the call option is less than the continuation
+value. Therefore, Gcall
+k(0,x∗
+M−1)can be calculated directly and it will be accurate
+with respect to the size of the integration range; Gcall
+k(0,b)can be replaced by
+Gput
+k(a,0), in a similar way as ( 42).
+The computation of Ckrepresents again the main part of the algorithm. First, we
+demonstrate how to compute Ck(x1,x2,tM−1)in (44) with the help of the Fast Fourier
+Transform (FFT), then we will show that for all m=M−2,···,1,Ck(x1,x2,tm)can
+be recovered from Ck(x1,x2,tm+1). We denote D(x1,x2):={Dk(x1,x2)}N−1
+k=0,with
+Dk(x1,x2) =e−q∆tRe(N−1/summationdisplay/prime
+j=0φ(jπ
+b−a,∆t,q,r,˜ν)Gput
+j(a,0)Jk,j(x1,x2)) (45)
+in which
+Jk,j(x1,x2):=2
+b−a/integraldisplayx2
+x1ei jπβx−a
+b−acos(kπx−a
+b−a)dx.
+where now β=−1−i(b−a)
+jπ, which is different from β=1. However, this β-value
+still results in a sum of a Toeplitz plus Hankel matrix.
+Application of ( 21) and ( 43) gives Ck(x1,x2,tM−1) =Dk(x1,x2),∀k=0,···,N−
+1.
+First we study the structure of Jk,jthen we compute D(x1,x2). From ( 24) and ( 25)
+we ﬁnd that
+Jk,j(x1,x2) =−i
+π(Jc
+k,j(x1,x2) +Js
+k,j(x1,x2)),
+with
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 19
+Js
+k,j(x1,x2) =(−1)
+(j−k) +i
+π(b−a)(exp(x2)exp(−(j−k)x2πi
+b−a)
+−exp(x1)exp(−(j−k)x1πi
+b−a))exp(−(j+k)aπi
+b−a)
+=(−1)
+(j−k) +i
+π(b−a)(exp(x2)1
+exp((j−k)x2πi
+b−a)
+−exp(x1)1
+exp((j−k)x1πi
+b−a))exp((j−k)aπi
+b−a)1
+exp(2jaπi
+b−a)
+and
+Jc
+k,j(x1,x2) =(−1)
+(j+k) +i
+π(b−a)(exp(x2)exp(−(j+k)x2πi
+b−a)
+−exp(x1)exp(−(j+k)x1πi
+b−a))exp(−(j−k)aπi
+b−a)
+=(−1)
+(j+k) +i
+π(b−a)(exp(x2)1
+exp((j+k)x2πi
+b−a)
+−exp(x1)1
+exp((j+k)x1πi
+b−a))exp((j+k)aπi
+b−a)1
+exp(2jaπi
+b−a)
+We denote u:={uj}N−1
+j=0with
+uj=φ(jπ
+b−a,∆t,q,r,˜ν)Gput
+j(a,0)1
+exp(2ja
+b−aπi),
+u0=1
+2φ(0,∆t,q,r,˜ν)Gput
+0(a,0),
+and we have
+D=e−q∆t
+πIm{(Jc+Js)u},
+where Jsis a Toeplitz matrix and Jcis a Hankel matrix.
+From [ 1] and [ 14] we know that matrix-vector multiplications can be performed
+highly efﬁciently then, with the help of the FFT.
+With the use of the Fast Fourier and Inverse Fast Fourier Transforms, the com-
+putational complexity of Ck(a,x∗
+M−1,tM−1)isO(Nlog2N).
+We then have the following lemma:
+Lemma 4.2. For m =M−2,···,1, c(x,tm), x∗
+m,Ck(a,x∗,tm)can all be recovered
+from C k(a,x∗
+m+1,tm+1)with computational complexity O (Nlog2N)at each time step.
+Ck(a,x∗
+1,t1)is recovered at the ﬁnal step.
+Proof. For any m=M−2,···,1, the continuation value reads:
+
+20 Bowen Zhang and Cornelis W. Oosterlee
+c(x,tm) =e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,r,q,ν)ei(x−a)kπ
+b−aVk(tm+1))
+=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,r,q,ν)ei(x−a)kπ
+b−a)·
+(Ck(a,x∗
+m+1,tm+1)−Gcall
+k(0,x∗
+m+1) +Gcall
+k(0,b))
+=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,r,q,ν)ei(x−a)kπ
+b−a)(Ck(a,x∗
+m+1,tm+1)−Gcall
+k(0,x∗
+m+1))
++e−q∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,q,r,˜ν)ei(−x−a)kπ
+b−a)exGput
+k(a,0). (46)
+The last step is from ( 13) and ( 42) and the fact that Vput
+k(K,S) =exGput
+k(a,0).
+Gcall
+k(0,x∗
+m+1)andGput
+k(a,0)can be calculated directly from their analytic solutions.
+By (46) the continuation value c(x,tm)is recovered from Ck(a,x∗
+m+1,tm+1)and
+∂c(x,tm)/∂xis directly calculated with ( 46).
+The continuation value and its derivative are then used in the Newton method to
+ﬁnd early–exercise point x∗
+m, which splits Vk(tm)as follows:
+Vk(tm) =Ck(a,x∗
+m,tm)−Gcall
+k(0,x∗
+m) +Gcall
+k(0,b).
+From ( 46) we now have that
+Ck(a,x∗
+m,tm) =2
+b−a/integraldisplayx∗m
+ac(x,tm)cos(kπx−a
+b−a)dx
+=e−r∆t
+πIm((Hc(a,x∗
+m) +Hs(a,x∗
+m))u1) +
+e−q∆t
+πIm((Jc(a,x∗
+m) +Js(a,x∗
+m))u2), (47)
+where we have four matrix-vector multiplications, instead of the usual two.
+Matrices HcandHsare deﬁned in ( 24) and ( 25), respectively, with β=1. More-
+over, we have in ( 47):
+u1
+0=1
+2φ(0,∆t,r,q,ν)(C0(a,x∗
+m+1,tm+1)−Gcall
+0(0,x∗
+m+1)),
+u1
+j=φ(jπ
+b−a,∆t,r,q,ν)(Cj(a,x∗
+m+1,tm+1)−Gcall
+j(0,x∗
+m+1)),j=1,···,N−1,
+u2
+0=1
+2φ(0,∆t,q,r,˜ν)Gput
+0(a,0).
+u2
+j=φ(jπ
+b−a,∆t,q,r,˜ν)Gput
+j(a,0)1
+exp(2ja
+b−aπi),j=1,···,N−1,
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 21
+HcandJcare Hankel matrices, HsandJsare Toeplitz matrices. Therefore, the
+Fast Fourier Transform can be employed to compute Ck(a,x∗
+m,tm),m=M−2,···,1
+and the computational complexity at each time step is O(Nlog2N).
+With Ck(a,x∗
+1,t1)known, the call option price then reads:
+v(x0,t0) =e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,r,q,ν)ei(x0−a)kπ
+b−a)Vk(t1)
+=e−r∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,r,q,ν)ei(x0−a)kπ
+b−a)(Ck(a,x∗
+1,t1)−Gcall
+k(0,x∗
+1))
++e−q∆tN−1/summationdisplay/prime
+k=0Re(φ(kπ
+b−a,∆t,q,r,˜ν)ei(−x0−a)kπ
+b−a)ex0Gput
+k(a,0) (48)
+From ( 46) and ( 47),∀m=M−2,···,1,c(x,tm),x∗andCk(a,x∗,tm)can be recovered
+from Ck(a,x∗
+m+1,tm+1)with the help of the Fast Fourier Transform, which ﬁnishes
+the proof. /intersectionsq /unionsq
+4.3 Error analysis with the put-call relations
+As shown in the previous sections, put option values, combined with the put–call
+parity or the put–call duality relations, are used to price call options with the COS
+method. We denote by vcallandvputthe exact call and put option values, respec-
+tively, and by ˆ vputthe put option value obtained by the COS method. Then, from the
+put–call parity, we have, ∀S,t,
+εcall(x,t) =vcall(x,t)−ˆvcall(x,t)
+=vput(x,t) +Kexe−q(T−t)−Ke−r(T−t)−(ˆvput(x,t) +Kexe−q(T−t)−Ke−r(T−t))
+=vput(x,t)−ˆvput(x,t) =εput(x,t),
+whereas for the put–call duality, we ﬁnd:
+εcall=vcall(S,K,r,q,t,v)−ˆvcall(S,K,r,q,t,v)
+=vput(K,S,q,r,e−xν(−dx))−ˆvput(K,S,q,r,e−xν(−dx)) =εput.
+So, by means of the put–call relations, the error of the call options equal that put
+options. As for put options the payoff is bounded, we have from ( 29):
+|ε1(x,[a,b])|=e−r∆tI1≤e−r∆tQ2I2. (49)
+
+22 Bowen Zhang and Cornelis W. Oosterlee
+The error can be controlled if the integration range is sufﬁciently large (which is
+our next issue). The integration range is deﬁned as in ( 11) and can be controlled by
+parameter L.
+After discussing the inﬂuence of the payoff and integration range on the error
+convergence separately in the previous section, here we give a remark on the inter-
+action of them on the error convergence of ε1.
+Remark 1 (Interaction of Payoff and Truncation Range on ε1).From ( 30) we see
+that
+ε1=e−r∆tI1≥e−r∆tK(eb−1)/integraldisplay∞
+bf(y|x)dy.
+For the Black–Scholes model and other underlying processes for which the density
+function decays very fast both at left and right tails, the fast decay in/integraltext∞
+bf(y|x)dy
+can compensate the exponential increase in eb−1. On the other hand, for underlying
+processes with fat tails, for instance, the CGMY model with Yclose to 2, or with a
+long maturity, the error decay rate with respect to Lis not so high and we require
+a larger integration range. In these cases the increase in eb−1 may give rise to
+divergence of the call value and the put–call parity or the put–call duality should be
+used for robust and accurate option values . This is further illustrated by numerical
+examples in Section 5.
+5 Numerical Examples
+In this section we will show the method’s accuracy, efﬁciency and robustness by a
+series of numerical examples. The CPU used is an Intel(R) Core(TM)2 Duo CPU
+E6550 (2.33GHz Cache size 4MB) with an implementation in Matlab 7.7.0.
+We use as reference values the Bermudan option prices obtained by the robust
+version of the COS method, with a very ﬁne grid (with N=214).
+In the experiments, we will use the CGMY model, with test parameters Y=0.5,
+Y=1.5 and Y=1.98; the remaining CGMY parameters are chosen as [C,M,G] =
+[1,5,5]. Other parameters include: r=0.1,q=0.02,S0=100,K=110. We set
+again M=10 and maturity T=1. Computational time and the absolute error in
+the option value are displayed in Tables 1to3. From these tables we see that for
+Y=0.5N=256 is sufﬁcient while for Y=1.5 and Y=1.98 it is N=128. When
+Y>1, which implies that the process has inﬁnite activity, the error in the option
+price is of order 10−12. From the tables we see that the methods with both the put–
+call parity and the put–call duality converge very well within milliseconds. The CPU
+time when using the put–call duality is approximately twice the time with put–call
+parity, because with the put–call duality we need to calculate two matrix-vector
+products with Hankel and Toeplitz matrices at each time step.
+Figure 3compares Bermudan call option values under the GBM model, obtained
+directly by the COS method with the values obtained via the put–call parity or the
+put–call duality, and with reference values. The dividend rate is q=0.02, and the
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 23
+N 64 128 256 512
+Parity: abs.err 2.9497e-004 1.0586e-005 8.5622e-007 1.1607e-007
+msec. 4.959 6.819 10.484 18.878
+Duality: abs.err 3.7177e-002 8.5904e-005 5.8262e-005 6.4494e-006
+msec. 8.000 12.105 19.778 35.554
+Table 1 Absolute error and CPU time (in milli–seconds) for the CGMY model, Y=0.5. COS
+pricing with the put-call relations.
+N 32 64 128 256
+Parity: abs.err 7.7799e-003 1.8691e-005 2.2737e-012 5.6843e-014
+msec. 3.735 4.699 6.760 10.527
+Duality: abs.err 2.8937e-002 1.3074e-002 5.8769e-007 7.9581e-013
+msec. 5.839 8.009 12.078 20.016
+Table 2 Absolute error and CPU time (in milli–seconds) for the CGMY model, Y=1.5. COS
+pricing with the put-call relations.
+N 32 64 128 256
+Parity: abs.err 4.0414e-001 3.8936e-004 1.1369e-013 <1e−016
+msec. 3.690 4.831 6.664 10.577
+Duality: abs.err 1.5431e-001 3.4510e-006 1.4495e-011 6.9207e-012
+msec. 7.927 12.034 19.643 35.400
+Table 3 Absolute error and CPU time (in milli–seconds) for the CGMY model, Y=1.98. COS
+pricing with the put-call relations.
+reference value is 53 .355758 .... For very large values, L>20, the option values ob-
+tained by the COS method (without the put-call relations) differ dramatically from
+the reference values. Pricing is robust, with respect to the size of the integration in-
+terval when the put–call parity and the put–call duality are applied, as then accurate
+call prices are obtained for any value of L, see Figure 3.
+We again consider the CGMY model, for which Figure 4shows Bermudan pric-
+ing results for Y=0.5 and r=0.1,q=0.02. The other parameter values are as in
+the previous experiments. The reference value is 23 .574835 .... Compared to Fig-
+ure3, the error in Bermudan call option values under this CGMY parameter set is
+signiﬁcantly larger than under the GBM model. However, combined with the put–
+call parity or the put–call duality, the option prices converge in a robust way to the
+reference value, for all L.
+With parameter Yclose to 2 in CGMY , the Bermudan call prices, computed di-
+rectly by the COS method are subject to cancellation errors even for small sizes of
+the computational domain and small maturity dates, as shown in Figure 5. Here the
+reference value for the Bermudan call is 99 .053582 .... With TandMincreasing,
+the error also increases. The COS method with the put–call parity or the put–call
+duality remains however robust also for these parameter values.
+Comparing Figures 5and4, we see that as Yincreases, which implies a fatter
+tail in the probability density function of the underlying, the error in the call price
+
+24 Bowen Zhang and Cornelis W. Oosterlee
+(a) Put–Call Parity
+ (b) Put–Call Duality
+Fig. 3 Bermudan call option values with varying L-values, GBM model, r=0.1,q=0.02,σ=
+0.2,T=10,M=50,L∈[10,30].
+(a) Put–Call Parity
+ (b) Put–Call Duality
+Fig. 4 Bermudan call option values with varying L-values, CGMY model with q=0.02,Y=
+0.5,M=24,L∈[8,10].
+obtained by the COS method with respect to large computational domain sizes in-
+creases drastically.
+5.1 American Options
+Finally, we price an American call option by the 4-point Richardson extrapolation
+using ( 27) with Bermudan options. We use the CGMY model with Y=1.5 and
+1.98, and q=0.05, and compare American calls for which the Bermudan calls in
+the extrapolation are priced directly by the COS method with those computed using
+the put–call parity or the put–call duality. In the COS method we used N=1024
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 25
+(a) Put–Call Parity
+ (b) Put–Call Duality
+Fig. 5 Bermudan call option values with varying L-values, CGMY model with q=0.05,Y=
+1.98,M=10,L∈[8,10].
+in the case with Y=1.98,M=32 (Mas in ( 27)); in all other cases, N=512 is
+sufﬁcient for convergence. The number of Newton iterations is set to 5 (as in [ 14]).
+The accuracy of the American prices depends on parameter Min the extrapo-
+lation formula ( 27). The results obtained are in Tables 4and5with CPU time in
+seconds. In these table the American option prices are accurate and robust when the
+put–call parity or the put–call duality was used in the COS pricing procedure.
+Min Eq. ( 27)Put-Call Parity Put-Call Duality direct COS method
+option value time (sec.) option value time (sec.) option value time (sec.)
+8 44.0934 0.243 44.0934 0.501 58.3396 0.238
+16 44.0933 0.489 44.0933 1.002 56.6221 0.428
+32 44.0936 0.998 44.0934 2.014 -5.3915e+02 0.840
+Table 4 American call option values and CPU time (in seconds) by Richardson extrapolation,
+under the CGMY model with, Y=1.5,q=0.05,
+Min Eq. ( 27)Put-Call Parity Put-Call Duality direct COS method
+option value time (sec.) option value time (sec.) option value time (sec.)
+8 99.1739 0.244 99.1739 0.497 -2.2964e+48 0.221
+16 99.1739 0.520 99.1739 0.987 5.0141e+46 0.460
+32 99.1738 0.976 99.1738 3.761 2.1427e+53 0.820
+Table 5 American call option values and CPU times (in seconds) by Richardson extrapolation,
+under the CGMY model with Y=1.98,q=0.05,
+
+26 Bowen Zhang and Cornelis W. Oosterlee
+6 Conclusions and Discussion
+In this chapter, we have discussed the generalization of the COS option pricing
+method, based on Fourier cosine expansions, from European options to Bermudan
+options. The method can be used whenever the characteristic function of the un-
+derlying price process is available. It is especially efﬁcient for exponential L ´evy
+processes.
+The COS formula for European options from [ 13] can be used for pricing Bermu-
+dan options, if the series coefﬁcients of the option values at the ﬁrst early-exercise
+date are known. These coefﬁcients can be recursively recovered from those of the
+payoff function. The computational complexity is O((M−1)Nlog2N), for Bermu-
+dan options under L ´evy processes with Mexercise dates. The COS method exhibits
+an exponential convergence in Nfor density functions in C∞[a,b]and an impres-
+sive computational speed. With a limited number, N, of Fourier cosine coefﬁcients,
+it produces highly accurate results. We have also presented error analysis for this
+method, showing that convergence for put options is easily obtained, whereas the
+unbounded payoff function for calls may hamper the robust convergence. The con-
+vergence of directly applying the COS method to call options depends of the choice
+of the integration range. Robust pricing, insensitive of the choice of the size of the
+integration range is achieved for call options, when the put-call parity or the put–
+call duality relation is applied. The use of these relations for call options with early
+exercise features has been explained in detail. This is a novel aspect of this work,
+resulting is a robust pricing technique for Bermudan and American options, inde-
+pendent of the size of the computational domain.
+Pricing American options can be done by a Richardson extrapolation method on
+Bermudan options with a varying number of exercise dates.
+References
+1.A. Almendral and C. W. Oosterlee. On American options under the Variance Gamma process.
+Appl. Math. Finance , 14(2):131–152, 2007.
+2.A. D. Andricopoulos, M. Widdicks, P. W. Duck, and D. P. Newton. Universal option valuation
+using quadrature methods. J. Fin. Economics , 67:447–471, 2003.
+3.A. D. Andricopoulos, M. Widdicks, P. W. Duck, and D. P. Newton. Extending quadra-
+ture methods to value multi-asset and complex path dependent options. J. Fin. Economics ,
+83(2):471–500, 2007.
+4.O. E. Barndorff-Nielsen. Normal inverse Gaussian distributions and stochastic volatility mod-
+elling. Scand. J. Statist. , 24(1-13), 1997.
+5.M. Broadie and Y . Yamamoto. Application of the fast Gauss transform to option pricing.
+Management Sci. , 49:1071–1008, 2003.
+6.M. Broadie and Y . Yamamoto. A double-exponential fast Gauss transform for pricing discrete
+path-dependent options. Operations Research , 53(5):764–779, 2005.
+7.P. P. Carr, H. Geman, D. B. Madan, and M. Yor. The ﬁne structure of asset returns: An
+empirical investigation. J. Business , 75:305–332, 2002.
+8.P. P. Carr and D. B. Madan. Option valuation using the fast Fourier transform. J. Comp.
+Finance , 2:61–73, 1999.
+
+Fourier Cosine Expansions and Put–Call Relations for Bermudan Options 27
+9.C-C Chang, S-L Chung, and R. C. Stapleton. Richardson extrapolation technique for pricing
+American-style options. J. Futures Markets , 27(8):791–817, 2007.
+10.R. Cont and P. Tankov. Financial Modelling with Jump Processes . Chapman and Hall, Boca
+Raton, FL, 2004.
+11.A. Eydeland. A fast algorithm for computing integrals in function spaces: ﬁnancial applica-
+tions. Computational Economics , 7(4):277–285, 1994.
+12.J. Fajardo, E. Mordecki. Symmetry and duality in Leacutevy markets. Quantitative Finance ,
+6(3): 219–227, 2006.
+13.F. Fang and C. W. Oosterlee. A novel option pricing method based on Fourier-cosine series
+expansions. SIAM J. Sci. Comput. , 31(2):826–848, 2008.
+14.F. Fang and C. W. Oosterlee. Pricing early-exercise and discrete barrier options by Fourier-
+cosine series expansions. Numerische Mathematik , 114(1):27–62, 2009.
+15.L. Feng and V . Linetsky. Pricing discretely monitored barrier options and defaultable bonds
+in L´evy process models: a fast Heston transform approach. Math. Finance , 18(3):337–384,
+2008.
+16.R. Geske and H. Johnson. The American put valued analytically. J. of Finance , 39:1511–
+1542, 1984.
+17.K. Jackson, S. Jaimungal, and V . Surkov. Option pricing with regime switching L ´evy pro-
+cesses using Fourier space time-stepping. Proc. 4th IASTED Intern. Conf. Financial Engin.
+Applic. , pages 92–97, 2007.
+18.S. G. Kou. A jump diffusion model for option pricing. Management Science , 48(8):1086–
+1101, 2002.
+19.R. Lord, F. Fang, F. Bervoets, and C.W. Oosterlee. A fast and accurate FFT-based method for
+pricing early-exercise options under L ´evy processes. SIAM J. Sci. Comput. , 30:1678–1705,
+2008.
+20.R. Lord and C. Kahl. Optimal Fourier inversion in semi-analytical option pricing. J. Comp.
+Finance , 10:1–30, 2007.
+21.D. B. Madan, P. R. Carr, and E. C. Chang. The Variance Gamma process and option pricing.
+European Finance Review , 2:79–105, 1998.
+22.R. Merton. Option pricing when underlying stock returns are discontinuous. J. Financial
+Economics , 3:125–144, 1976.
+23.W. Schoutens. L´evy processes in ﬁnance: Pricing ﬁnancial derivatives . Wiley, 2003.
+24.Y . Yamamoto. Double-exponential fast Gauss transform algorithms for pricing discrete look-
+back options. Publ. Res. Inst. Math. Sci. , 41:989–1006, 2005.
+25.B. Zhang, C.W. Oosterlee. An efﬁcient pricing algorithm for swing options based on Fourier
+Cosine expansions. To appear in the Journal of Computational Finance .

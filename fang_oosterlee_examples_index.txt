@@ -1,0 +1,13 @@
+page 16: Figures: Fig. 1
+page 22: Figures: Fig. 1
+page 23: Tables: Table 1, Table 8, Table 9
+page 24: Figures: Fig. 2
+page 25: Tables: Table 2, Table 3, Table 4, Table 5, Table 8
+page 26: Tables: Table 4, Table 5, Table 6
+page 27: Tables: Table 6 | Figures: Fig. 3
+page 28: Tables: Table 4, Table 7
+page 30: Figures: Fig. 4, Fig. 5, Figure 4
+page 31: Tables: Table 1 | Figures: Fig. 5
+page 32: Figures: Fig. 6
+page 33: Tables: Table 8
+page 34: Tables: Table 8, Table 9
