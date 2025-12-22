@@ -16,7 +16,7 @@ from scipy.optimize import root_scalar
 import pandas as pd
 
 # Global number of timesteps for all pricers
-NT_GLOBAL = 200
+NT_GLOBAL = 250
 
 from american_options import (
     GBMCHF,
@@ -108,9 +108,18 @@ class FDMPricer:
 
         # Dividend indices (forward indices)
         div_indices = set()
+        div_index_to_m = {}
         for t_div, (m, _) in self.divs.items():
             if 0.0 < t_div <= T and dt > 0:
-                div_indices.add(int(round(t_div / dt)))
+                idx = int(round(float(t_div) / float(dt)))
+                div_indices.add(idx)
+                # If multiple dividends collide on the same index, combine multiplicatively.
+                # (This is a reasonable fallback when grid resolution cannot separate ex-div times.)
+                if idx in div_index_to_m:
+                    prev = float(div_index_to_m[idx])
+                    div_index_to_m[idx] = 1.0 - (1.0 - prev) * (1.0 - float(m))
+                else:
+                    div_index_to_m[idx] = float(m)
 
         # Backward in time: n from NT-1 down to 0, time t_n = n*dt
         for n in range(NT - 1, -1, -1):
@@ -123,7 +132,15 @@ class FDMPricer:
             # For puts:  S=0 -> K*exp(-r*(T-t_n)), S->S_max -> 0
             if is_call:
                 V_lower = 0.0
-                V_upper = S_max - K * np.exp(-self.r * (T - t_n))
+                # With discrete proportional dividends, as S->infty the call behaves like
+                #   V(t,S) ~ S * exp(-q*(T-t)) * Π_{t_div in (t,T]}(1-m) - K*exp(-r*(T-t))
+                # Here we are stepping to the *post-dividend* value at t_n (mapping, if any,
+                # happens after this PDE step), so include only dividends strictly after t_n.
+                prod_remain = 1.0
+                for t_div, (m, _std) in self.divs.items():
+                    if (t_n + 1e-12) < float(t_div) <= float(T) + 1e-12:
+                        prod_remain *= max(1.0 - float(m), 1e-12)
+                V_upper = (S_max * np.exp(-self.q * (T - t_n)) * prod_remain) - K * np.exp(-self.r * (T - t_n))
             else:
                 V_lower = K * np.exp(-self.r * (T - t_n))
                 V_upper = 0.0
@@ -151,13 +168,8 @@ class FDMPricer:
             # Dividend mapping at t_n if ex-div occurs
             if n in div_indices:
                 # Map pre-div prices: V_pre(S) = V_post(S*(1-m))
-                m = None
-                # find dividend magnitude at this t_n
-                for t_div, (md, _) in self.divs.items():
-                    if abs(t_div - t_n) <= 0.5 * dt:
-                        m = md
-                        break
-                if m is not None and m > 0:
+                m = float(div_index_to_m.get(n, 0.0))
+                if m > 0.0:
                     # CORRECT dividend mapping: V_pre(S) = V_post(S*(1-m))
                     V_new = np.interp(S * (1.0 - m), S, V_new, left=0.0, right=V_new[-1])
 
@@ -834,17 +846,19 @@ def plot_continuation_through_time(do_lsmc=False):
     - If do_lsmc=True, includes LSMC runs and plots; otherwise, skips them.
     """
     S0, r, q, T = 100.0, 0.02, 0.0, 1.0
-    divs = {0.25: (2.0, 0.5), 0.75: (2.0, 0.5)}
+    divs = {0.25: (2.0, 1e-6), 0.75: (2.0, 1e-6)}
     K = np.array([100.0])
     vol = 0.25
 
+    N=2**9
+    L=10.0
     base_model = GBMCHF(S0, r, q, divs, {"vol": vol})
-    pricer = COSPricer(base_model, N=128, L=8.0)
+    pricer = COSPricer(base_model, N=N, L=L)
     # Use coarse grid plus fine windows around dividend dates
     eps = 1e-6
-    coarse = np.linspace(eps, T-eps, 41)
-    fine1 = np.linspace(0.24, 0.26, 21)
-    fine2 = np.linspace(0.74, 0.76, 21)
+    coarse = np.linspace(eps, T-eps, 51)
+    fine1 = np.linspace(0.24, 0.26, 5)
+    fine2 = np.linspace(0.74, 0.76, 5)
     # round to avoid duplicates from float construction (e.g. two representations of 0.25)
     times = np.unique(np.round(np.concatenate([coarse, fine1, fine2]), 12))
 
@@ -881,11 +895,13 @@ def plot_continuation_through_time(do_lsmc=False):
 
         # COS with shifted dividends
         model_t = GBMCHF(S0_eff, r, q, divs_shift, {"vol": vol})
-        pricer_t = COSPricer(model_t, N=128, L=8.0)
+        pricer_t = COSPricer(model_t, N=N, L=L)
 
         euro_sa = pricer_t.european_price(K, tau)[0]
         cos_euro_standalone.append(euro_sa)
-        amer_tau, euro_tau = pricer_t.american_price(K, tau, steps=NT_GLOBAL, beta=20.0, use_softmax=True, return_european=True)
+        # Use a "harder" softmax (larger beta) so the smooth exercise operator
+        # stays numerically close to the hard-max / FDM reference.
+        amer_tau, euro_tau = pricer_t.american_price(K, tau, steps=NT_GLOBAL, beta=100.0, use_softmax=True, return_european=True)
         cos_american.append(amer_tau[0])
         cos_euro_from_rb.append(euro_tau[0])
 
@@ -932,11 +948,50 @@ def plot_continuation_through_time(do_lsmc=False):
 
     # Now plot using the just-generated DataFrame
     fig, ax = plt.subplots(figsize=(12, 7))
-    ax.plot(df.time, df.cos_euro_standalone, label="COS European (standalone)", linewidth=1.8, color="orange", linestyle=":")
-    ax.plot(df.time, df.cos_euro_from_rollback, label="COS European (from rollback)", linewidth=2, color="cyan", linestyle="--")
-    ax.plot(df.time, df.fdm_euro, label="FDM European", linewidth=1.8, color="purple", linestyle=":")
-    ax.plot(df.time, df.cos_american, label="COS American", linewidth=2.5, color="red",alpha=0.5)
-    ax.plot(df.time, df.fdm_american, label="FDM American", linewidth=2, color="magenta", linestyle="--")
+
+    # --- Europeans ---
+
+    # COS standalone (unique color + X marker)
+    ax.plot(df.time, df.cos_euro_standalone,
+            label="COS European (standalone)",
+            color="#000000", marker="x", markersize=7,
+            linestyle="None", linewidth=0)
+
+    # COS from rollback (semi-opaque line)
+    ax.plot(df.time, df.cos_euro_from_rollback,
+            label="COS European (from rollback)",
+            color="#1f77b4", linewidth=1.0, linestyle="-", alpha=0.5)
+
+    # FDM European (hollow circle, same color)
+    ax.plot(df.time, df.fdm_euro,
+            label="FDM European",
+            color="#1f77b4", marker="o", markersize=6,
+            markerfacecolor="none", linestyle="None", linewidth=0)
+
+
+    # --- Americans ---
+
+    # COS American (semi-opaque line)
+    ax.plot(df.time, df.cos_american,
+            label="COS American",
+            color="#ff0e0e", linewidth=1.0, linestyle="-", alpha=0.5)
+
+    # FDM American (hollow circle, same color)
+    ax.plot(df.time, df.fdm_american,
+            label="FDM American",
+            color="#ff0e0e", marker="o", markersize=7,
+            markerfacecolor="none", linestyle="None", linewidth=0)
+
+
+
+    # ax.plot(df.time, df.cos_euro_standalone, label="COS European (standalone)", linewidth=1.8, color="orange", linestyle=":")
+    # ax.plot(df.time, df.cos_euro_from_rollback, label="COS European (from rollback)", linewidth=2, color="cyan", linestyle="--")
+    # ax.plot(df.time, df.fdm_euro, label="FDM European", linewidth=1.8, color="purple", linestyle=":")
+    # ax.plot(df.time, df.cos_american, label="COS American", linewidth=2.5, color="red",alpha=0.5)
+    # ax.plot(df.time, df.fdm_american, label="FDM American", linewidth=2, color="magenta", linestyle="--")
+
+
+
     if do_lsmc:
         if "lsmc_american_train" in df.columns:
             ax.plot(df.time, df.lsmc_american_train, label="LSMC American (train)", color="green", linestyle="-.")
