@@ -1,3 +1,33 @@
+## 2025-12-22 — Cash Dividend API + Diagnostics Recap
+
+This repo now expects **discrete dividends to be specified as cash amounts in spot currency**:
+
+- `divs[t] = (D_mean, D_std)`
+
+Internally, pricing code converts cash dividends to proportional lognormal factors using the expected pre-div forward (an approximation that keeps COS/LSMC/FDM/MC consistent).
+
+### Key Changes
+
+- **Cash dividend conversion helper**: added/used `cash_divs_to_proportional_divs(...)` and cash-aware `forward_price(...)` in [american_options/engine.py](american_options/engine.py).
+- **Model initialization**: characteristic-function models convert the user cash schedule once at construction; pricers then use internal proportional parameters.
+- **Diagnostics updated**:
+   - `plot_gbm_mc_vs_cos_dividend_uncertainty()` now computes its deterministic forward using `forward_price(...)` (fixes strike-grid + OTM-IV split under cash dividends) and filters dividends to `t<=T`.
+   - `plot_forward_parity_through_time()` now computes model-free forward/prepaid forward consistently under cash dividends (parity residuals ~ machine-zero).
+   - `plot_continuation_through_time()` now treats “immediate” dividends as **cash** (subtracts `D_mean` from spot) instead of mistakenly applying `(1-m)`.
+- **MC/COS validation**: GBM MC vs COS pricing under dividend uncertainty is supported, with OTM-based IV inversion for stability.
+- **Repo hygiene**: added [.gitignore](.gitignore) and removed tracked Python bytecode caches (`__pycache__`, `*.pyc`).
+
+### Verification
+
+- `pytest` passes locally (`16 passed`).
+- Key figures/CSVs regenerated under `figs/` (forward parity, continuation through time, MC vs COS under dividend uncertainty).
+
+### GitHub
+
+- Checkpoint commit: `9e47f1b` (pushed to `master`).
+
+---
+
 """
 IMPLEMENTATION COMPLETE: TRAJECTORY CACHING FOR AMERICAN OPTION PRICING
 ========================================================================
