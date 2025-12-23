@@ -16,6 +16,8 @@ import numpy as np
 from typing import Dict, Tuple, Any
 import scipy.optimize as opt
 
+from .events import DiscreteEventJump
+
 
 # --------------------------------------------------------------------------- #
 # 1. Helpers – dividends & forward
@@ -198,6 +200,21 @@ class CharacteristicFunction:
     # ----------------------------------------------------------------------- #
     # 2.3. American rollback with softmax
     # ----------------------------------------------------------------------- #
+    def european_price(self,
+                       K: np.ndarray,
+                       T: float,
+                       is_call: bool = True,
+                       N: int = 512,
+                       L: float = 10.0,
+                       event: DiscreteEventJump | None = None) -> np.ndarray:
+        """European option price via COS.
+
+        This is a convenience wrapper around :class:`COSPricer`.
+        """
+        K = np.atleast_1d(K).astype(float)
+        pricer = COSPricer(self, N=N, L=L)
+        return pricer.european_price(K, T, is_call=is_call, event=event)
+
     def american_price(self,
                        K: np.ndarray,
                        T: float,
@@ -206,7 +223,8 @@ class CharacteristicFunction:
                        N: int = 512,
                        L: float = 10.0,
                        use_softmax: bool = False,
-                       return_european: bool = False):
+                       return_european: bool = False,
+                       event: DiscreteEventJump | None = None):
         """
         American call price via generic COS backward induction (Bowen/Zhang-Oosterlee style).
         Dispatches to the COSPricer which accepts the model (self) as input.
@@ -218,7 +236,7 @@ class CharacteristicFunction:
         """
         K = np.atleast_1d(K).astype(float)
         pricer = COSPricer(self, N=N, L=L)
-        return pricer.american_price(K, T, steps=steps, beta=beta, use_softmax=use_softmax, return_european=return_european)
+        return pricer.american_price(K, T, steps=steps, beta=beta, use_softmax=use_softmax, return_european=return_european, event=event)
 
 
 # --------------------------------------------------------------------------- #
@@ -290,7 +308,7 @@ class COSPricer:
         self.L = float(L)
         self.M = int(M) if M is not None else max(2 * self.N, 512)
 
-    def european_price(self, K: np.ndarray, T: float, is_call: bool = True) -> np.ndarray:
+    def european_price(self, K: np.ndarray, T: float, is_call: bool = True, event: DiscreteEventJump | None = None) -> np.ndarray:
         """COS European pricing using the Fang–Oosterlee COS method.
 
         Vectorized over strikes K.
@@ -305,6 +323,9 @@ class COSPricer:
         # COS truncation domain from cumulants
         try:
             c1, c2, c4 = self.model.cumulants(T)
+            if event is not None and 0.0 < float(event.time) <= float(T):
+                e1, e2, e4 = event.log_cumulants()
+                c1, c2, c4 = float(c1 + e1), float(c2 + e2), float(c4 + e4)
             c2 = float(max(c2, 0.0))
             c4 = float(max(c4, 0.0))
             width = self.L * np.sqrt(c2 + np.sqrt(c4))
@@ -316,6 +337,10 @@ class COSPricer:
             var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
             var = float(self.model._var2(T) + var_div)
             F = _forward_price_from_prop_divs(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
+            if event is not None and 0.0 < float(event.time) <= float(T):
+                # Forward multiplier for the remaining horizon (mean factor = 1 if ensure_martingale=True)
+                F *= float(event.mean_factor if not event.ensure_martingale else 1.0)
+                var += float(event.log_cumulants()[1])
             mu = float(np.log(F) - 0.5 * var)
             width = self.L * np.sqrt(max(var, 1e-16))
             a, b = mu - width, mu + width
@@ -327,6 +352,8 @@ class COSPricer:
         k = np.arange(N).reshape((-1, 1))
         u = k * np.pi / (b - a)  # (N,1)
         phi = self.model.char_func(u.flatten(), T).reshape((N,))
+        if event is not None and 0.0 < float(event.time) <= float(T):
+            phi = phi * event.phi(u.flatten())
         re_phi = np.real(phi.reshape((-1, 1)) * np.exp(-1j * u * a))
 
         # Payoff coefficients (call/put) in log-space over [a, b]
@@ -376,7 +403,7 @@ class COSPricer:
         mat_sum = np.sum(weights * re_phi * Vk, axis=0)
         return np.exp(-self.model.r * T) * mat_sum
 
-    def american_price(self, K: np.ndarray, T: float, steps: int = 50, is_call: bool = True, beta: float = 20.0, use_softmax: bool = False, return_european: bool = False, return_trajectory: bool = False, return_continuation_trajectory: bool = False, rollback_debug: bool = False, diagnostics_file: str = None):
+    def american_price(self, K: np.ndarray, T: float, steps: int = 50, is_call: bool = True, beta: float = 20.0, use_softmax: bool = False, return_european: bool = False, return_trajectory: bool = False, return_continuation_trajectory: bool = False, rollback_debug: bool = False, diagnostics_file: str = None, event: DiscreteEventJump | None = None):
         """COS-based backward induction for American options.
 
         - Maintain coefficients across steps.
@@ -390,7 +417,7 @@ class COSPricer:
         prices = np.zeros_like(K)
         euro_prices = None
         if return_european:
-            euro_prices = self.european_price(K, T, is_call=is_call)
+            euro_prices = self.european_price(K, T, is_call=is_call, event=event)
 
         trajectory_cache = [] if return_trajectory else None
         cont_trajectory_cache = [] if return_continuation_trajectory else None
@@ -438,6 +465,8 @@ class COSPricer:
         exp_divs, div_params = _dividend_adjustment(T, self.model.divs)
         var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
         var = self.model._var2(T) + var_div
+        if event is not None and 0.0 < float(event.time) <= float(T):
+            var += float(event.log_cumulants()[1])
         # Truncation safety: cap variance used for COS truncation to avoid astronomic grids
         if hasattr(self.model, 'params') and 'safety_trunc_var' in self.model.params:
             VAR_TRUNC = float(self.model.params.get('safety_trunc_var'))
@@ -450,6 +479,8 @@ class COSPricer:
             VAR_TRUNC = 4.0 if is_cgmy else 10.0
         var_trunc = min(var, VAR_TRUNC)
         F = _forward_price_from_prop_divs(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
+        if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
+            F *= float(event.mean_factor)
         mu = np.log(F) - 0.5 * var_trunc
         a = mu - self.L * np.sqrt(max(var_trunc, 1e-16))
         b = mu + self.L * np.sqrt(max(var_trunc, 1e-16))
@@ -479,8 +510,10 @@ class COSPricer:
         else:
             dt_nominal = float(T) / float(steps)
             div_times = sorted([float(t) for t in self.model.divs.keys() if 0.0 < float(t) <= float(T)])
+            evt_time = float(event.time) if (event is not None) else None
+            event_times = [evt_time] if (evt_time is not None and 0.0 < evt_time <= float(T)) else []
             # Interval boundaries
-            t_knots = [0.0] + div_times + [float(T)]
+            t_knots = sorted(set([0.0] + div_times + event_times + [float(T)]))
             t_steps_list = [0.0]
             for t0, t1 in zip(t_knots[:-1], t_knots[1:]):
                 interval = float(t1) - float(t0)
@@ -494,6 +527,9 @@ class COSPricer:
         # Dividend lookup with tolerance (times should be present in t_steps, but guard float noise).
         div_time_m = [(float(t_div), float(m)) for t_div, (m, _) in self.model.divs.items() if 0.0 < float(t_div) <= float(T)]
         div_tol = max(1e-12, 1e-10 * dt_nominal)
+
+        evt_tol = div_tol
+        evt_time = float(event.time) if (event is not None) else None
 
         # Endpoint trapezoidal weights for projection
         w = np.ones_like(x_grid)
@@ -537,6 +573,14 @@ class COSPricer:
                         cont = np.interp(x_grid + shift, x_grid, cont, left=cont[0], right=0.0)
                         break
 
+                # Discrete event mapping (binary jump) at known time
+                if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol:
+                    shift_u = float(np.log(event.u_eff))
+                    shift_d = float(np.log(event.d_eff))
+                    cont_u = np.interp(x_grid + shift_u, x_grid, cont, left=cont[0], right=0.0)
+                    cont_d = np.interp(x_grid + shift_d, x_grid, cont, left=cont[0], right=0.0)
+                    cont = float(event.p) * cont_u + (1.0 - float(event.p)) * cont_d
+
                 remaining_tau = float(T) - t_current
                 
                 if direct_call_with_divs:
@@ -556,6 +600,10 @@ class COSPricer:
                     sum_log_up_to_t, _ = _dividend_adjustment(t_current, self.model.divs)
                     sum_log_rem = sum_log_total - sum_log_up_to_t
                     spot_adj = S_grid * np.exp(-self.model.q * remaining_tau + sum_log_rem)
+                    if event is not None and evt_time is not None and not event.ensure_martingale:
+                        # If event is in the remaining horizon, include its mean factor in the forward-like adjustment
+                        if float(t_current) < float(evt_time) <= float(T):
+                            spot_adj = spot_adj * float(event.mean_factor)
                     
                     cont_call = cont + spot_adj - Kval * np.exp(-self.model.r * remaining_tau)
                     intrinsic = S_grid - Kval
@@ -612,6 +660,8 @@ class COSPricer:
                 # Convert back to call price
                 sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
                 forward_adj = self.model.S0 * np.exp(-self.model.q * T + sum_log_total)
+                if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
+                    forward_adj *= float(event.mean_factor)
                 prices[j] = val0 + forward_adj - Kval * np.exp(-self.model.r * T)
             else:
                 prices[j] = val0

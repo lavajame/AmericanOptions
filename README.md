@@ -52,6 +52,22 @@ A vectorized GBM Monte Carlo was added to validate COS pricing under the same di
 ### 5) Repo hygiene
 - `.gitignore` added so Python bytecode caches (`__pycache__`, `*.pyc`) are not tracked.
 
+### 6) Discrete event jumps (scheduled binary multiplicative jump)
+This repo supports a simple **scheduled, independent, binary event jump** at a known time $t_e$:
+
+$$S_{t_e+} = S_{t_e-}\times J,\quad J=\begin{cases}u & \text{w.p. } p\\ d & \text{w.p. } (1-p)\end{cases}$$
+
+Represent it with `DiscreteEventJump(time, p, u, d, ensure_martingale=True)` from:
+- [american_options/events.py](american_options/events.py)
+
+If `ensure_martingale=True` (default), the jump factors are internally normalized so the event has mean 1 under the pricing measure:
+
+$$M = \mathbb{E}[J]=pu+(1-p)d,\qquad u_{eff}=u/M,\ d_{eff}=d/M.$$
+
+You can pass the event into COS pricing as an optional argument:
+- `COSPricer.european_price(..., event=event)`
+- `COSPricer.american_price(..., event=event)`
+
 ## Repository Layout
 
 - `american_options/`
@@ -115,6 +131,64 @@ print(call, put)
 ```
 
 American pricing (rollback) is available through `COSPricer.american_price(...)`.
+
+## Discrete event jump usage
+
+European pricing with an event jump (no dividends shown here):
+
+```python
+import numpy as np
+from american_options import GBMCHF
+from american_options.engine import COSPricer
+from american_options.events import DiscreteEventJump
+
+S0, r, q, T = 100.0, 0.02, 0.0, 1.0
+K = np.array([80.0, 100.0, 120.0])
+
+model = GBMCHF(S0, r, q, divs={}, params={"vol": 0.25})
+pricer = COSPricer(model, N=512, L=8.0)
+
+event = DiscreteEventJump(time=0.30, p=0.60, u=1.10, d=0.92, ensure_martingale=True)
+
+call = pricer.european_price(K, T, is_call=True, event=event)
+put = pricer.european_price(K, T, is_call=False, event=event)
+print(call, put)
+```
+
+American pricing uses the same `event=...` parameter and applies the mixture mapping at the event boundary during rollback.
+
+## IV surface plots for event impact
+
+Static 1x2 implied-vol surface (GBM+event vs VG+event), European COS, no dividends:
+
+```bash
+python plot_event_iv_surfaces.py
+```
+
+Output:
+- `figs/event_iv_surfaces_gbm_vs_vg.png`
+
+Interactive linked 3D wireframes (rotate either plot; the other follows):
+
+```bash
+# Generates VG as the second model
+python make_linked_event_iv_surfaces.py --model vg
+
+# Generates Merton as the second model
+python make_linked_event_iv_surfaces.py --model merton
+```
+
+Outputs:
+- `figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html`
+- `figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html`
+
+Tip: open the HTML via a local HTTP server (some browsers restrict local file access):
+
+```bash
+python -m http.server 8000
+```
+
+Then visit `http://localhost:8000/figs/`.
 
 ## Notes / Caveats
 

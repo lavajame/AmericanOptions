@@ -28,6 +28,32 @@ Internally, pricing code converts cash dividends to proportional lognormal facto
 
 ---
 
+## 2025-12-23 — Discrete Event Jump (Scheduled Binary Jump)
+
+This repo now supports a scheduled, independent **binary multiplicative event jump** at a known time $t_e$:
+
+$$S_{t_e+} = S_{t_e-}\times J,\quad J\in\{u,d\}.$$
+
+### What was added
+
+- New `DiscreteEventJump` class in [american_options/events.py](american_options/events.py) with fields: `time`, `p`, `u`, `d`, `ensure_martingale`.
+- COS European pricing: optional `event=...` multiplies the model characteristic function by the event CF (and expands truncation using event log-cumulants).
+- COS American pricing: optional `event=...` inserts the event time into the rollback grid and applies the event mixture mapping at the boundary.
+
+### Usage
+
+- `COSPricer.european_price(..., event=event)`
+- `COSPricer.american_price(..., event=event)`
+
+### Plots
+
+- `plot_event_iv_surfaces.py` writes `figs/event_iv_surfaces_gbm_vs_vg.png`
+- `make_linked_event_iv_surfaces.py` writes linked 3D Plotly HTML:
+   - `figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html`
+   - `figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html`
+
+---
+
 """
 IMPLEMENTATION COMPLETE: TRAJECTORY CACHING FOR AMERICAN OPTION PRICING
 ========================================================================
