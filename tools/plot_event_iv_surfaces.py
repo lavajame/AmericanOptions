@@ -14,11 +14,17 @@ No dividends are used.
 from __future__ import annotations
 
 import os
+import sys
 from math import erf, exp, log, sqrt
 
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import root_scalar
+
+# Allow running as: `python tools/plot_event_iv_surfaces.py`
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from american_options import DiscreteEventJump, GBMCHF, VGCHF
 from american_options.engine import COSPricer

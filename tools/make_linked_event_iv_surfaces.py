@@ -17,13 +17,30 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from math import erf, exp, log, sqrt
 
 import numpy as np
 from scipy.optimize import root_scalar
 
+# Allow running as: `python tools/make_linked_event_iv_surfaces.py ...`
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+  sys.path.insert(0, _REPO_ROOT)
+
 from american_options import DiscreteEventJump, GBMCHF, MertonCHF, VGCHF
 from american_options.engine import COSPricer
+
+
+def _round_array(a: np.ndarray, ndp: int) -> np.ndarray:
+  # Keep NaNs as NaN; round finite values only.
+  if ndp is None:
+    return a
+  a = np.asarray(a, dtype=float)
+  out = a.copy()
+  mask = np.isfinite(out)
+  out[mask] = np.round(out[mask], ndp)
+  return out
 
 
 def _norm_cdf(x: float) -> float:
@@ -247,6 +264,12 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Output HTML path. If omitted, uses a default under figs/ based on --model.",
     )
+    parser.add_argument(
+      "--payload-ndp",
+      type=int,
+      default=4,
+      help="Round payload numeric arrays to this many decimal places to reduce HTML size.",
+    )
     args = parser.parse_args(argv)
 
     os.makedirs("figs", exist_ok=True)
@@ -322,19 +345,27 @@ def main(argv: list[str] | None = None) -> None:
     iv_gbm_base = _iv_surface_from_cos(model=gbm, strikes=strikes, maturities=maturities, event=None, N=N_gbm, L=L_gbm)
     iv_complex_base = _iv_surface_from_cos(model=complex_model, strikes=strikes, maturities=maturities, event=None, N=N_complex, L=L_complex)
 
+    ndp = int(args.payload_ndp) if args.payload_ndp is not None else None
+    strikes_out = _round_array(strikes, ndp)
+    maturities_out = _round_array(maturities, ndp)
+    iv_gbm_out = _round_array(iv_gbm, ndp)
+    iv_complex_out = _round_array(iv_complex, ndp)
+    iv_gbm_base_out = _round_array(iv_gbm_base, ndp)
+    iv_complex_base_out = _round_array(iv_complex_base, ndp)
+
     payload = {
-        "strikes": strikes.tolist(),
-        "maturities": maturities.tolist(),
-      "iv_gbm_event": iv_gbm.tolist(),
-      "iv_gbm_base": iv_gbm_base.tolist(),
-      "iv_complex_event": iv_complex.tolist(),
-      "iv_complex_base": iv_complex_base.tolist(),
+      "strikes": strikes_out.tolist(),
+      "maturities": maturities_out.tolist(),
+      "iv_gbm_event": iv_gbm_out.tolist(),
+      "iv_gbm_base": iv_gbm_base_out.tolist(),
+      "iv_complex_event": iv_complex_out.tolist(),
+      "iv_complex_base": iv_complex_base_out.tolist(),
       "complex_title": complex_title,
         "event": {
-            "time": float(event.time),
-            "p": float(event.p),
-            "u": float(event.u),
-            "d": float(event.d),
+        "time": float(round(float(event.time), ndp)) if ndp is not None else float(event.time),
+        "p": float(round(float(event.p), ndp)) if ndp is not None else float(event.p),
+        "u": float(round(float(event.u), ndp)) if ndp is not None else float(event.u),
+        "d": float(round(float(event.d), ndp)) if ndp is not None else float(event.d),
             "ensure_martingale": bool(event.ensure_martingale),
         },
     }
