@@ -209,11 +209,11 @@ function makeSurface(divId, title, zEvent, zBase) {{
   Plotly.newPlot(divId, [traceBase, traceEvent], layout, config);
 }}
 
-makeSurface('plot_gbm', 'GBM (flat vol) + event', payload.iv_gbm_event, payload.iv_gbm_base);
+makeSurface('plot_gbm', payload.gbm_title || 'GBM + event', payload.iv_gbm_event, payload.iv_gbm_base);
 makeSurface('plot_complex', payload.complex_title, payload.iv_complex_event, payload.iv_complex_base);
 
 document.getElementById('meta').textContent =
-  `Event at t=${{payload.event.time.toFixed(2)}} | p=${{payload.event.p.toFixed(3)}} | u=${{payload.event.u.toFixed(4)}} | d=${{payload.event.d.toFixed(4)}} | martingale_norm=${{payload.event.ensure_martingale}}`;
+  `Event (log-jump) at t=${{payload.event.time.toFixed(3)}} | p=${{payload.event.p.toFixed(3)}} | u=${{payload.event.u.toFixed(4)}} (factor=${{Math.exp(payload.event.u).toFixed(4)}}) | d=${{payload.event.d.toFixed(4)}} (factor=${{Math.exp(payload.event.d).toFixed(4)}}) | martingale_norm=${{payload.event.ensure_martingale}}`;
 
 // Link camera rotations between the two 3D scenes.
 const divA = document.getElementById('plot_gbm');
@@ -298,42 +298,63 @@ def main(argv: list[str] | None = None) -> None:
     strikes = np.linspace(S0 / k_lim, S0 * k_lim, 41, dtype=float)
     maturities = np.linspace(0.02, T, 101, dtype=float)
 
-    # Event definition (same for both models)
-    u = 1.04
-    event = DiscreteEventJump(time=event_time, p=0.5, u=u, d=1/u, ensure_martingale=True)
+    # Event definition (same for both models): specified in log-jump space.
+    # If J=u then factor is exp(u); if J=d then factor is exp(d).
+    u_factor = 1.04
+    d_factor = 1.0 / u_factor
+    event = DiscreteEventJump(
+        time=event_time,
+        p=0.5,
+        u=float(np.log(u_factor)),
+        d=float(np.log(d_factor)),
+        ensure_martingale=True,
+    )
 
     # Model 1: GBM (flat base vol)
     gbm = GBMCHF(S0=S0, r=r, q=q, divs={}, params={"vol": sigma})
 
     # Model 2: choose VG or Merton
     if complex_kind.upper() == "VG":
-      # Match instantaneous variance per unit time: Var[X_t]/t = sigma_vg^2 + theta^2 * nu
-      sigma_vg_sq = float(sigma) ** 2 - (float(vg_theta) ** 2) * float(vg_nu)
-      sigma_vg = float(np.sqrt(max(1e-12, sigma_vg_sq)))
-      complex_model = VGCHF(
-        S0=S0,
-        r=r,
-        q=q,
-        divs={},
-        params={"sigma": sigma_vg, "theta": float(vg_theta), "nu": float(vg_nu)},
-      )
-      complex_title = "VG (non-flat IV) + event"
-      print(f"vg sigma for target atm vol {sigma:.4f} is {complex_model.params['sigma']:.6f}")
+        # Match instantaneous variance per unit time: Var[X_t]/t = sigma_vg^2 + theta^2 * nu
+        sigma_vg_sq = float(sigma) ** 2 - (float(vg_theta) ** 2) * float(vg_nu)
+        sigma_vg = float(np.sqrt(max(1e-12, sigma_vg_sq)))
+        complex_model = VGCHF(
+            S0=S0,
+            r=r,
+            q=q,
+            divs={},
+            params={"sigma": sigma_vg, "theta": float(vg_theta), "nu": float(vg_nu)},
+        )
+        complex_title = (
+            f"VG sigma={complex_model.params['sigma']:.4f}, theta={vg_theta:.4f}, nu={vg_nu:.4f}"
+            f"<br>event t={event_time:.3f}, p={event.p:.3f}, u={event.u:.4f}, d={event.d:.4f}"
+            f" (factors {np.exp(event.u):.4f}/{np.exp(event.d):.4f}), martingale_norm={event.ensure_martingale}"
+        )
+        print(f"vg sigma for target atm vol {sigma:.4f} is {complex_model.params['sigma']:.6f}")
     elif complex_kind.upper() == "MERTON":
-      # Match instantaneous variance per unit time: Var[X_t]/t = vol^2 + lam*(muJ^2 + sigmaJ^2)
-      vol_sq = float(sigma) ** 2 - float(merton_lam) * (float(merton_muJ) ** 2 + float(merton_sigmaJ) ** 2)
-      vol = float(np.sqrt(max(1e-12, vol_sq)))
-      complex_model = MertonCHF(
-        S0=S0,
-        r=r,
-        q=q,
-        divs={},
-        params={"vol": vol, "lam": float(merton_lam), "muJ": float(merton_muJ), "sigmaJ": float(merton_sigmaJ)},
-      )
-      complex_title = "Merton (JD) + event"
-      print(f"merton vol for target atm vol {sigma:.4f} is {complex_model.params['vol']:.6f}")
+        # Match instantaneous variance per unit time: Var[X_t]/t = vol^2 + lam*(muJ^2 + sigmaJ^2)
+        vol_sq = float(sigma) ** 2 - float(merton_lam) * (float(merton_muJ) ** 2 + float(merton_sigmaJ) ** 2)
+        vol = float(np.sqrt(max(1e-12, vol_sq)))
+        complex_model = MertonCHF(
+            S0=S0,
+            r=r,
+            q=q,
+            divs={},
+            params={
+                "vol": vol,
+                "lam": float(merton_lam),
+                "muJ": float(merton_muJ),
+                "sigmaJ": float(merton_sigmaJ),
+            },
+        )
+        complex_title = (
+            f"Merton vol={complex_model.params['vol']:.4f}, lam={merton_lam:.3f}, muJ={merton_muJ:.4f}, sigmaJ={merton_sigmaJ:.4f}"
+            f"<br>event t={event_time:.3f}, p={event.p:.3f}, u={event.u:.4f}, d={event.d:.4f}"
+            f" (factors {np.exp(event.u):.4f}/{np.exp(event.d):.4f}), martingale_norm={event.ensure_martingale}"
+        )
+        print(f"merton vol for target atm vol {sigma:.4f} is {complex_model.params['vol']:.6f}")
     else:
-      raise ValueError(f"Unknown complex_kind: {complex_kind}")
+        raise ValueError(f"Unknown complex_kind: {complex_kind}")
 
     # COS settings
     N_gbm, L_gbm = 2**12, 8.0
@@ -353,6 +374,12 @@ def main(argv: list[str] | None = None) -> None:
     iv_gbm_base_out = _round_array(iv_gbm_base, ndp)
     iv_complex_base_out = _round_array(iv_complex_base, ndp)
 
+    gbm_title = (
+      f"GBM sigma={sigma:.4f}"
+      f"<br>event t={event_time:.3f}, p={event.p:.3f}, u={event.u:.4f}, d={event.d:.4f}"
+      f" (factors {np.exp(event.u):.4f}/{np.exp(event.d):.4f}), martingale_norm={event.ensure_martingale}"
+    )
+
     payload = {
       "strikes": strikes_out.tolist(),
       "maturities": maturities_out.tolist(),
@@ -360,6 +387,7 @@ def main(argv: list[str] | None = None) -> None:
       "iv_gbm_base": iv_gbm_base_out.tolist(),
       "iv_complex_event": iv_complex_out.tolist(),
       "iv_complex_base": iv_complex_base_out.tolist(),
+      "gbm_title": gbm_title,
       "complex_title": complex_title,
         "event": {
         "time": float(round(float(event.time), ndp)) if ndp is not None else float(event.time),

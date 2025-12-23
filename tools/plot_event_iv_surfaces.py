@@ -124,7 +124,13 @@ def main() -> None:
     maturities = np.linspace(0.01, T, 40, dtype=float)
 
     # Event definition (same for both models)
-    event = DiscreteEventJump(time=event_time, p=0.5, u=1.04, d=0.90, ensure_martingale=True)
+    event = DiscreteEventJump(
+        time=event_time,
+        p=0.5,
+        u=float(np.log(1.04)),
+        d=float(np.log(0.90)),
+        ensure_martingale=True,
+    )
 
     # Model 1: GBM (flat base vol)
     gbm = GBMCHF(S0=S0, r=r, q=q, divs={}, params={"vol": 0.20})

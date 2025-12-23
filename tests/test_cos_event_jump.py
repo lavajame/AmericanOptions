@@ -36,7 +36,7 @@ def test_cos_european_with_discrete_event_matches_mixture_bs():
     model = GBMCHF(S0=S0, r=r, q=q, divs={}, params={"vol": vol})
 
     # Event at t=0.4, with (p,u,d). We keep ensure_martingale=True so E[factor]=1.
-    event = DiscreteEventJump(time=0.25, p=0.8, u=1.01, d=0.85, ensure_martingale=True)
+    event = DiscreteEventJump(time=0.25, p=0.8, u=float(np.log(1.01)), d=float(np.log(0.85)), ensure_martingale=True)
 
     # COS European call with event
     cos_call = model.european_price(np.array([K]), T, is_call=True, event=event)[0]
@@ -64,7 +64,7 @@ def test_cos_event_increases_atm_call_value_vs_no_event():
     model = GBMCHF(S0=S0, r=r, q=q, divs={}, params={"vol": vol})
     base = model.european_price(np.array([K]), T, is_call=True)[0]
 
-    event = DiscreteEventJump(time=0.5, p=0.5, u=1.15, d=0.90, ensure_martingale=True)
+    event = DiscreteEventJump(time=0.5, p=0.5, u=float(np.log(1.15)), d=float(np.log(0.90)), ensure_martingale=True)
     bumped = model.european_price(np.array([K]), T, is_call=True, event=event)[0]
 
     assert bumped >= base

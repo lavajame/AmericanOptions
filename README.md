@@ -55,14 +55,29 @@ A vectorized GBM Monte Carlo was added to validate COS pricing under the same di
 ### 6) Discrete event jumps (scheduled binary multiplicative jump)
 This repo supports a simple **scheduled, independent, binary event jump** at a known time $t_e$:
 
-$$S_{t_e+} = S_{t_e-}\times J,\quad J=\begin{cases}u & \text{w.p. } p\\ d & \text{w.p. } (1-p)\end{cases}$$
+We specify the event in **log-jump space**:
+
+$$J = \begin{cases}
+u & \text{with probability } p\\
+d & \text{with probability } (1-p)
+\end{cases}$$
+
+where typically $u>0$ (up move) and $d<0$ (down move). The spot jump is then multiplicative:
+
+$$S_{t_e+} = S_{t_e-}\times e^{J}.$$
 
 Represent it with `DiscreteEventJump(time, p, u, d, ensure_martingale=True)` from:
 - [american_options/events.py](american_options/events.py)
 
 If `ensure_martingale=True` (default), the jump factors are internally normalized so the event has mean 1 under the pricing measure:
 
-$$M = \mathbb{E}[J]=pu+(1-p)d,\qquad u_{eff}=u/M,\ d_{eff}=d/M.$$
+$$M = \mathbb{E}[e^{J}] = p\,e^{u} + (1-p)\,e^{d}.$$
+
+Equivalently, in log space the effective jumps are shifted by $\ln M$:
+
+$$u_{eff} = u - \ln M,\qquad d_{eff} = d - \ln M,$$
+
+so the effective multiplicative factors are $e^{u_{eff}}$ and $e^{d_{eff}}$.
 
 You can pass the event into COS pricing as an optional argument:
 - `COSPricer.european_price(..., event=event)`
@@ -148,7 +163,7 @@ K = np.array([80.0, 100.0, 120.0])
 model = GBMCHF(S0, r, q, divs={}, params={"vol": 0.25})
 pricer = COSPricer(model, N=512, L=8.0)
 
-event = DiscreteEventJump(time=0.30, p=0.60, u=1.10, d=0.92, ensure_martingale=True)
+event = DiscreteEventJump(time=0.30, p=0.60, u=float(np.log(1.10)), d=float(np.log(0.92)), ensure_martingale=True)
 
 call = pricer.european_price(K, T, is_call=True, event=event)
 put = pricer.european_price(K, T, is_call=False, event=event)

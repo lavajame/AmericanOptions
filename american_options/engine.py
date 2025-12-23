@@ -575,8 +575,8 @@ class COSPricer:
 
                 # Discrete event mapping (binary jump) at known time
                 if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol:
-                    shift_u = float(np.log(event.u_eff))
-                    shift_d = float(np.log(event.d_eff))
+                    shift_u = float(event.u_log_eff)
+                    shift_d = float(event.d_log_eff)
                     cont_u = np.interp(x_grid + shift_u, x_grid, cont, left=cont[0], right=0.0)
                     cont_d = np.interp(x_grid + shift_d, x_grid, cont, left=cont[0], right=0.0)
                     cont = float(event.p) * cont_u + (1.0 - float(event.p)) * cont_d

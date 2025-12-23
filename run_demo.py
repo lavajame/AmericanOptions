@@ -45,9 +45,10 @@ def main() -> None:
     print("Inverted GBM volatility:", inv_vol)
 
     # --- Discrete event jump demo (scheduled binary multiplicative jump) ---
-    # Example: at event_time, spot jumps by u w.p. p, otherwise by d.
-    # With ensure_martingale=True, (u, d) are normalized so E[J]=1.
-    event = DiscreteEventJump(time=0.30, p=0.60, u=1.10, d=0.92, ensure_martingale=True)
+    # Example: event is specified in log-jump space.
+    # If J=u (u>0) then factor is exp(u); if J=d (d<0) then factor is exp(d).
+    # With ensure_martingale=True, jumps are shifted so E[exp(J)]=1.
+    event = DiscreteEventJump(time=0.30, p=0.60, u=float(np.log(1.10)), d=float(np.log(0.92)), ensure_martingale=True)
 
     # Use the COS pricer directly so we can pass event=...
     # (CharacteristicFunction.european_price / american_price also accept event=...)
