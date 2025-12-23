@@ -47,8 +47,8 @@ $$S_{t_e+} = S_{t_e-}\times J,\quad J\in\{u,d\}.$$
 
 ### Plots
 
-- `plot_event_iv_surfaces.py` writes `figs/event_iv_surfaces_gbm_vs_vg.png`
-- `make_linked_event_iv_surfaces.py` writes linked 3D Plotly HTML:
+- `tools/plot_event_iv_surfaces.py` writes `figs/event_iv_surfaces_gbm_vs_vg.png`
+- `tools/make_linked_event_iv_surfaces.py` writes linked 3D Plotly HTML:
    - `figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html`
    - `figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html`
 

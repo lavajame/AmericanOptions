@@ -162,7 +162,7 @@ American pricing uses the same `event=...` parameter and applies the mixture map
 Static 1x2 implied-vol surface (GBM+event vs VG+event), European COS, no dividends:
 
 ```bash
-python plot_event_iv_surfaces.py
+python tools/plot_event_iv_surfaces.py
 ```
 
 Output:
@@ -172,10 +172,10 @@ Interactive linked 3D wireframes (rotate either plot; the other follows):
 
 ```bash
 # Generates VG as the second model
-python make_linked_event_iv_surfaces.py --model vg
+python tools/make_linked_event_iv_surfaces.py --model vg
 
 # Generates Merton as the second model
-python make_linked_event_iv_surfaces.py --model merton
+python tools/make_linked_event_iv_surfaces.py --model merton
 ```
 
 Outputs:
