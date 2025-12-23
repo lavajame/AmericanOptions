@@ -163,7 +163,8 @@ K = np.array([80.0, 100.0, 120.0])
 model = GBMCHF(S0, r, q, divs={}, params={"vol": 0.25})
 pricer = COSPricer(model, N=512, L=8.0)
 
-event = DiscreteEventJump(time=0.30, p=0.60, u=float(np.log(1.10)), d=float(np.log(0.92)), ensure_martingale=True)
+# Note: u/d are *log-jumps* (so the multiplicative factors are exp(u) and exp(d)).
+event = DiscreteEventJump(time=0.30, p=0.60, u=0.10, d=-0.08, ensure_martingale=True)
 
 call = pricer.european_price(K, T, is_call=True, event=event)
 put = pricer.european_price(K, T, is_call=False, event=event)
