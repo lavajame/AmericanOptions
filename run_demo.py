@@ -2,6 +2,8 @@
 
 import numpy as np
 from american_options import GBMCHF, MertonCHF, KouCHF, VGCHF, invert_vol_for_american_price
+from american_options.engine import COSPricer
+from american_options.events import DiscreteEventJump
 
 
 def main() -> None:
@@ -41,6 +43,20 @@ def main() -> None:
     amer_price = gbm.american_price(np.array([100.0]), T)[0]
     inv_vol = invert_vol_for_american_price(amer_price, S0, r, q, T, divs, 100.0)
     print("Inverted GBM volatility:", inv_vol)
+
+    # --- Discrete event jump demo (scheduled binary multiplicative jump) ---
+    # Example: at event_time, spot jumps by u w.p. p, otherwise by d.
+    # With ensure_martingale=True, (u, d) are normalized so E[J]=1.
+    event = DiscreteEventJump(time=0.30, p=0.60, u=1.10, d=0.92, ensure_martingale=True)
+
+    # Use the COS pricer directly so we can pass event=...
+    # (CharacteristicFunction.european_price / american_price also accept event=...)
+    pricer = COSPricer(gbm, N=512, L=8.0)
+    K_event = np.array([90.0, 100.0, 110.0])
+    call_event = pricer.european_price(K_event, T, is_call=True, event=event)
+    call_base = pricer.european_price(K_event, T, is_call=True, event=None)
+    print("GBM European (no event):", call_base)
+    print("GBM European (+ event):", call_event)
 
 
 if __name__ == "__main__":
