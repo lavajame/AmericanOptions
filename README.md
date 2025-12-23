@@ -9,6 +9,8 @@ A Python research/pricing toolkit centered on **COS (Fourier-cosine) option pric
 
 This repo is designed for reproducible numerical experiments: most key comparisons write **PNGs/CSVs to `figs/`** and the test suite provides regression protection.
 
+Quick link: [FIGURES.md](FIGURES.md)
+
 ## What We Built / Changed
 
 ### 1) Project-wide dividend convention (cash dividends)
@@ -215,6 +217,7 @@ Then visit `http://localhost:8000/figs/`.
 
 - [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)
 - [TRAJECTORY_CACHING.md](TRAJECTORY_CACHING.md)
+- [FIGURES.md](FIGURES.md)
 
 ## License
 

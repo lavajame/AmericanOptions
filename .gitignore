@@ -15,3 +15,6 @@ ENV/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Local figure copies
+figs/* - Copy.*
