@@ -12,8 +12,9 @@ Provides:
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import numpy as np
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Iterable, Hashable, Optional
 import scipy.optimize as opt
 
 from .events import DiscreteEventJump
@@ -302,11 +303,292 @@ class DualModel(CharacteristicFunction):
 class COSPricer:
     """Generic COS pricer that takes a CharacteristicFunction instance and prices options."""
 
+    # Shared caches across COSPricer instances.
+    # This matters because many call sites construct a new COSPricer per price request.
+    _AMERICAN_CTX_CACHE: "OrderedDict[Hashable, Dict[str, Any]]" = OrderedDict()
+    _AMERICAN_CTX_CACHE_MAX = 12
+
     def __init__(self, model: CharacteristicFunction, N: int = 512, L: float = 10.0, M: int = None):
         self.model = model
         self.N = int(N)
         self.L = float(L)
         self.M = int(M) if M is not None else max(2 * self.N, 512)
+
+    @staticmethod
+    def _float_key(x: float, ndp: int = 14) -> float:
+        return float(round(float(x), ndp))
+
+    @classmethod
+    def _model_cache_key(cls, model: CharacteristicFunction) -> tuple:
+        # Model identity for caching: type + core scalars + params + internal div schedule.
+        # (We avoid id(model) so new model instances still hit the cache.)
+        params_items: list[tuple[str, str]] = []
+        if hasattr(model, "params") and isinstance(model.params, dict):
+            for k, v in sorted(model.params.items(), key=lambda kv: str(kv[0])):
+                params_items.append((str(k), repr(v)))
+
+        div_items: list[tuple[float, float, float]] = []
+        if hasattr(model, "divs") and isinstance(model.divs, dict):
+            for t, (m, std) in sorted(model.divs.items(), key=lambda kv: float(kv[0])):
+                div_items.append((cls._float_key(t), cls._float_key(m), cls._float_key(std)))
+
+        return (
+            type(model).__name__,
+            cls._float_key(model.S0),
+            cls._float_key(model.r),
+            cls._float_key(model.q),
+            tuple(params_items),
+            tuple(div_items),
+        )
+
+    @classmethod
+    def _event_cache_key(cls, event: Optional[DiscreteEventJump]) -> tuple:
+        if event is None:
+            return (None,)
+        # Use effective log-jumps (after martingale normalization) because those drive rollback mapping.
+        return (
+            "DiscreteEventJump",
+            cls._float_key(event.time),
+            cls._float_key(event.p),
+            cls._float_key(event.u_log_eff),
+            cls._float_key(event.d_log_eff),
+            bool(getattr(event, "ensure_martingale", True)),
+            cls._float_key(getattr(event, "mean_factor", 1.0)),
+        )
+
+    @classmethod
+    def _american_context_key(
+        cls,
+        model: CharacteristicFunction,
+        *,
+        T: float,
+        steps: int,
+        N: int,
+        M: int,
+        L: float,
+        event: Optional[DiscreteEventJump],
+    ) -> tuple:
+        return (
+            "american_ctx",
+            cls._model_cache_key(model),
+            cls._event_cache_key(event),
+            cls._float_key(T),
+            int(steps),
+            int(N),
+            int(M),
+            cls._float_key(L),
+        )
+
+    @staticmethod
+    def _build_shift_operator(x_grid: np.ndarray, shift: float) -> Dict[str, np.ndarray]:
+        """Precompute interpolation indices/weights for y(x+shift) on the x_grid."""
+        x_grid = np.asarray(x_grid, dtype=float)
+        xq = x_grid + float(shift)
+
+        idx = np.searchsorted(x_grid, xq, side="right") - 1
+        idx = np.clip(idx, 0, len(x_grid) - 2)
+        x0 = x_grid[idx]
+        x1 = x_grid[idx + 1]
+        wgt = (xq - x0) / (x1 - x0)
+
+        left_mask = xq <= x_grid[0]
+        right_mask = xq >= x_grid[-1]
+        return {
+            "idx": idx.astype(np.int64, copy=False),
+            "wgt": wgt.astype(float, copy=False),
+            "left_mask": left_mask,
+            "right_mask": right_mask,
+        }
+
+    @staticmethod
+    def _apply_shift_operator(values: np.ndarray, op: Dict[str, np.ndarray]) -> np.ndarray:
+        """Apply a precomputed shift operator to a 2D grid (nK, M)."""
+        vals = np.asarray(values, dtype=float)
+        if vals.ndim == 1:
+            vals = vals[None, :]
+
+        idx = op["idx"]
+        wgt = op["wgt"]
+        left_mask = op["left_mask"]
+        right_mask = op["right_mask"]
+
+        out = (1.0 - wgt)[None, :] * vals[:, idx] + wgt[None, :] * vals[:, idx + 1]
+        if np.any(left_mask):
+            out[:, left_mask] = vals[:, 0][:, None]
+        if np.any(right_mask):
+            out[:, right_mask] = 0.0
+        return out
+
+    def _get_or_build_american_context(self, T: float, *, steps: int, event: DiscreteEventJump | None) -> Dict[str, Any]:
+        """Build (or fetch) strike-independent rollback context for American pricing."""
+        key = self._american_context_key(self.model, T=float(T), steps=int(steps), N=self.N, M=self.M, L=self.L, event=event)
+        cache = self._AMERICAN_CTX_CACHE
+        ctx = cache.get(key)
+        if ctx is not None:
+            # LRU bump
+            cache.move_to_end(key)
+            return ctx
+
+        N = self.N
+        M = self.M
+
+        # Truncation range for entire horizon T
+        exp_divs, div_params = _dividend_adjustment(float(T), self.model.divs)
+        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
+        var = self.model._var2(float(T)) + var_div
+        if event is not None and 0.0 < float(event.time) <= float(T):
+            var += float(event.log_cumulants()[1])
+
+        if hasattr(self.model, 'params') and 'safety_trunc_var' in self.model.params:
+            VAR_TRUNC = float(self.model.params.get('safety_trunc_var'))
+        else:
+            try:
+                from american_options import CGMYCHF
+                is_cgmy = isinstance(self.model, CGMYCHF)
+            except Exception:
+                is_cgmy = False
+            VAR_TRUNC = 4.0 if is_cgmy else 10.0
+        var_trunc = min(var, VAR_TRUNC)
+
+        F = _forward_price_from_prop_divs(self.model.S0, self.model.r, self.model.q, float(T), self.model.divs)
+        if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
+            F *= float(event.mean_factor)
+        mu = float(np.log(F) - 0.5 * var_trunc)
+        a = float(mu - self.L * np.sqrt(max(var_trunc, 1e-16)))
+        b = float(mu + self.L * np.sqrt(max(var_trunc, 1e-16)))
+
+        x_grid = np.linspace(a, b, M)
+        dx = float(x_grid[1] - x_grid[0])
+        S_grid = np.exp(x_grid)
+
+        k = np.arange(N).reshape((-1, 1))
+        cos_k_x = np.cos(k * np.pi * (x_grid - a) / (b - a))
+        sin_k_x = np.sin(k * np.pi * (x_grid - a) / (b - a))
+        u = (k * np.pi / (b - a)).flatten()
+
+        # Time grid including dividends/events exactly
+        if steps <= 0:
+            t_steps = np.array([0.0, float(T)], dtype=float)
+            dt_nominal = float(T)
+        else:
+            dt_nominal = float(T) / float(steps)
+            div_times = sorted([float(t) for t in self.model.divs.keys() if 0.0 < float(t) <= float(T)])
+            evt_time = float(event.time) if (event is not None) else None
+            event_times = [evt_time] if (evt_time is not None and 0.0 < evt_time <= float(T)) else []
+            t_knots = sorted(set([0.0] + div_times + event_times + [float(T)]))
+            t_steps_list = [0.0]
+            for t0, t1 in zip(t_knots[:-1], t_knots[1:]):
+                interval = float(t1) - float(t0)
+                if interval <= 0.0:
+                    continue
+                n_seg = max(1, int(round(interval / dt_nominal)))
+                seg = t0 + interval * (np.arange(1, n_seg + 1, dtype=float) / float(n_seg))
+                t_steps_list.extend(seg.tolist())
+            t_steps = np.array(t_steps_list, dtype=float)
+
+        div_tol = max(1e-12, 1e-10 * float(dt_nominal))
+        evt_tol = div_tol
+        evt_time = float(event.time) if (event is not None) else None
+
+        # Endpoint trapezoidal weights for projection
+        w = np.ones_like(x_grid)
+        w[0] = 0.5
+        w[-1] = 0.5
+
+        # Precompute shift operators for dividends (by t_current) and event u/d.
+        div_shift_ops_by_time: Dict[float, Dict[str, np.ndarray]] = {}
+        for t_div, (m, _std) in self.model.divs.items():
+            t_div = float(t_div)
+            if 0.0 < t_div <= float(T) and float(m) > 0.0:
+                shift = float(np.log(max(1.0 - float(m), 1e-12)))
+                div_shift_ops_by_time[t_div] = self._build_shift_operator(x_grid, shift)
+
+        evt_ops = None
+        if event is not None and evt_time is not None and 0.0 < evt_time <= float(T):
+            evt_ops = (
+                self._build_shift_operator(x_grid, float(event.u_log_eff)),
+                self._build_shift_operator(x_grid, float(event.d_log_eff)),
+            )
+
+        # Precompute per-step increment CFs + discount.
+        step_info = []
+        for step_idx in range(len(t_steps) - 1, 0, -1):
+            dt = float(t_steps[step_idx] - t_steps[step_idx - 1])
+            t_current = float(t_steps[step_idx - 1])
+            phi_dt = self.model.increment_char(u, dt)
+            step_info.append(
+                (
+                    dt,
+                    t_current,
+                    np.real(phi_dt).astype(float, copy=False),
+                    np.imag(phi_dt).astype(float, copy=False),
+                    float(np.exp(-self.model.r * dt)),
+                )
+            )
+
+        # Dividend prefix sums for parity conversions (avoid repeated _dividend_adjustment)
+        # sum_log_total is the deterministic log-mean component (includes -0.5*var terms).
+        sum_log_total = 0.0
+        div_log_terms: list[tuple[float, float]] = []
+        for t, (m, std) in sorted(self.model.divs.items(), key=lambda kv: float(kv[0])):
+            t = float(t)
+            if 0.0 < t <= float(T):
+                var = float(std) ** 2
+                term = float(np.log(max(1.0 - float(m), 1e-12)) - 0.5 * var)
+                div_log_terms.append((t, term))
+                sum_log_total += term
+
+        # Map each t_current to sum_log_up_to_t via a sweep.
+        sum_log_up_to: Dict[float, float] = {}
+        running = 0.0
+        j = 0
+        for _dt, t_current, *_ in reversed(step_info[::-1]):
+            # This loop order isn't critical; we just want deterministic keys.
+            pass
+        # Use sorted unique times from t_steps (excluding T) for stable lookup.
+        t_sorted = sorted(set(float(t) for t in t_steps[:-1]))
+        for t_cur in t_sorted:
+            while j < len(div_log_terms) and div_log_terms[j][0] <= t_cur + 1e-15:
+                running += div_log_terms[j][1]
+                j += 1
+            sum_log_up_to[t_cur] = running
+
+        # Interp-at-S0 weights (fixed across strikes)
+        x0 = float(np.log(self.model.S0))
+        ix0 = int(np.searchsorted(x_grid, x0, side="right") - 1)
+        ix0 = max(0, min(ix0, len(x_grid) - 2))
+        wgt0 = float((x0 - x_grid[ix0]) / (x_grid[ix0 + 1] - x_grid[ix0]))
+
+        ctx = {
+            "a": a,
+            "b": b,
+            "x_grid": x_grid,
+            "S_grid": S_grid,
+            "dx": dx,
+            "w": w,
+            "cos_k_x": cos_k_x,
+            "sin_k_x": sin_k_x,
+            "u": u,
+            "t_steps": t_steps,
+            "dt_nominal": float(dt_nominal),
+            "div_tol": float(div_tol),
+            "evt_tol": float(evt_tol),
+            "evt_time": evt_time,
+            "div_shift_ops_by_time": div_shift_ops_by_time,
+            "evt_ops": evt_ops,
+            "step_info": step_info,
+            "sum_log_total": float(sum_log_total),
+            "sum_log_up_to": sum_log_up_to,
+            "ix0": int(ix0),
+            "wgt0": float(wgt0),
+        }
+
+        # LRU insert
+        cache[key] = ctx
+        cache.move_to_end(key)
+        while len(cache) > int(self._AMERICAN_CTX_CACHE_MAX):
+            cache.popitem(last=False)
+        return ctx
 
     def european_price(self, K: np.ndarray, T: float, is_call: bool = True, event: DiscreteEventJump | None = None) -> np.ndarray:
         """COS European pricing using the Fang–Oosterlee COS method.
@@ -403,7 +685,7 @@ class COSPricer:
         mat_sum = np.sum(weights * re_phi * Vk, axis=0)
         return np.exp(-self.model.r * T) * mat_sum
 
-    def american_price(self, K: np.ndarray, T: float, steps: int = 50, is_call: bool = True, beta: float = 20.0, use_softmax: bool = False, return_european: bool = False, return_trajectory: bool = False, return_continuation_trajectory: bool = False, rollback_debug: bool = False, diagnostics_file: str = None, event: DiscreteEventJump | None = None):
+    def american_price(self, K: np.ndarray, T: float, steps: int = 50, is_call: bool | np.ndarray = True, beta: float = 20.0, use_softmax: bool = False, return_european: bool = False, return_trajectory: bool = False, return_continuation_trajectory: bool = False, rollback_debug: bool = False, diagnostics_file: str = None, event: DiscreteEventJump | None = None):
         """COS-based backward induction for American options.
 
         - Maintain coefficients across steps.
@@ -412,6 +694,31 @@ class COSPricer:
           but for general robustness (especially with fat tails), pricing the dual put is preferred.
         """
         K = np.atleast_1d(K).astype(float)
+
+        # Mixed put/call vector support: price puts and calls separately, reusing cached context.
+        is_call_arr = np.asarray(is_call)
+        if is_call_arr.ndim > 0 and is_call_arr.size not in (0, 1):
+            if is_call_arr.shape[0] != K.shape[0]:
+                raise ValueError("If is_call is an array, it must match K shape")
+            if return_trajectory or return_continuation_trajectory or return_european:
+                raise ValueError("Mixed is_call with trajectory/european outputs is not supported")
+            out = np.empty_like(K, dtype=float)
+            call_mask = is_call_arr.astype(bool)
+            put_mask = ~call_mask
+            if np.any(put_mask):
+                out[put_mask] = np.asarray(
+                    self.american_price(K[put_mask], T, steps=steps, is_call=False, beta=beta, use_softmax=use_softmax, event=event),
+                    dtype=float,
+                )
+            if np.any(call_mask):
+                out[call_mask] = np.asarray(
+                    self.american_price(K[call_mask], T, steps=steps, is_call=True, beta=beta, use_softmax=use_softmax, event=event),
+                    dtype=float,
+                )
+            return out
+
+        # Scalar is_call
+        is_call = bool(is_call)
         N = self.N
         M = self.M
         prices = np.zeros_like(K)
@@ -440,6 +747,7 @@ class COSPricer:
             and float(self.model.q) > 0.0
             and not self.model.divs
             and not (return_trajectory or return_continuation_trajectory)
+            and K.size <= 8
         ):
             # C(S0, K, r, q, T) = P(K, S0, q, r, T) under dual measure
             # We price a put with strike = S0, spot = K, r_dual = q, q_dual = r
@@ -448,10 +756,16 @@ class COSPricer:
                 dual_model = DualModel(self.model, dual_S0=Kval)
                 dual_pricer = COSPricer(dual_model, N=self.N, L=self.L, M=self.M)
                 # Price a put with strike = self.model.S0
-                p = dual_pricer.american_price(np.array([self.model.S0]), T, steps=steps, is_call=False, 
-                                               beta=beta, use_softmax=use_softmax)
+                p = dual_pricer.american_price(
+                    np.array([self.model.S0]),
+                    T,
+                    steps=steps,
+                    is_call=False,
+                    beta=beta,
+                    use_softmax=use_softmax,
+                )
                 dual_prices[j] = p[0]
-            
+
             if return_european:
                 return dual_prices, euro_prices
             return dual_prices
@@ -461,110 +775,27 @@ class COSPricer:
         # a dividend moves close to t=0). In that case, price calls directly.
         direct_call_with_divs = bool(is_call) and bool(self.model.divs)
 
-        # Truncation range for entire horizon T
-        exp_divs, div_params = _dividend_adjustment(T, self.model.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
-        var = self.model._var2(T) + var_div
-        if event is not None and 0.0 < float(event.time) <= float(T):
-            var += float(event.log_cumulants()[1])
-        # Truncation safety: cap variance used for COS truncation to avoid astronomic grids
-        if hasattr(self.model, 'params') and 'safety_trunc_var' in self.model.params:
-            VAR_TRUNC = float(self.model.params.get('safety_trunc_var'))
-        else:
-            try:
-                from american_options import CGMYCHF
-                is_cgmy = isinstance(self.model, CGMYCHF)
-            except Exception:
-                is_cgmy = False
-            VAR_TRUNC = 4.0 if is_cgmy else 10.0
-        var_trunc = min(var, VAR_TRUNC)
-        F = _forward_price_from_prop_divs(self.model.S0, self.model.r, self.model.q, T, self.model.divs)
-        if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
-            F *= float(event.mean_factor)
-        mu = np.log(F) - 0.5 * var_trunc
-        a = mu - self.L * np.sqrt(max(var_trunc, 1e-16))
-        b = mu + self.L * np.sqrt(max(var_trunc, 1e-16))
-
-        x_grid = np.linspace(a, b, M)
-        dx = x_grid[1] - x_grid[0]
-        S_grid = np.exp(x_grid)
-
-        # Precompute cosine basis and u-grid
-        k = np.arange(N).reshape((-1, 1))
-        cos_k_x = np.cos(k * np.pi * (x_grid - a) / (b - a))  # shape (N, M)
-        sin_k_x = np.sin(k * np.pi * (x_grid - a) / (b - a))  # shape (N, M)
-        u = (k * np.pi / (b - a)).flatten()
-
-        # Build a rollback time grid that includes dividend times exactly.
-        #
-        # Previous behavior snapped dividends to an integer index via round(t_div / dt).
-        # When this routine is called repeatedly for slightly different horizons (e.g. tau=T-t
-        # in diagnostics), dt changes slightly and the rounding can jump by 1, creating visible
-        # spikes/discontinuities around ex-div dates.
-        #
-        # Here we instead split the grid at each dividend time, then sub-step each interval.
-        # This makes the dividend mapping occur at a deterministic time boundary.
-        if steps <= 0:
-            t_steps = np.array([0.0, float(T)])
-            dt_nominal = float(T)
-        else:
-            dt_nominal = float(T) / float(steps)
-            div_times = sorted([float(t) for t in self.model.divs.keys() if 0.0 < float(t) <= float(T)])
-            evt_time = float(event.time) if (event is not None) else None
-            event_times = [evt_time] if (evt_time is not None and 0.0 < evt_time <= float(T)) else []
-            # Interval boundaries
-            t_knots = sorted(set([0.0] + div_times + event_times + [float(T)]))
-            t_steps_list = [0.0]
-            for t0, t1 in zip(t_knots[:-1], t_knots[1:]):
-                interval = float(t1) - float(t0)
-                if interval <= 0.0:
-                    continue
-                n_seg = max(1, int(round(interval / dt_nominal)))
-                seg = t0 + interval * (np.arange(1, n_seg + 1, dtype=float) / float(n_seg))
-                t_steps_list.extend(seg.tolist())
-            t_steps = np.array(t_steps_list, dtype=float)
-
-        # Dividend lookup with tolerance (times should be present in t_steps, but guard float noise).
-        div_time_m = [(float(t_div), float(m)) for t_div, (m, _) in self.model.divs.items() if 0.0 < float(t_div) <= float(T)]
-        div_tol = max(1e-12, 1e-10 * dt_nominal)
-
-        evt_tol = div_tol
-        evt_time = float(event.time) if (event is not None) else None
-
-        # Endpoint trapezoidal weights for projection
-        w = np.ones_like(x_grid)
-        w[0] = 0.5
-        w[-1] = 0.5
-
-        def _interp_shifted(values: np.ndarray, shift: float) -> np.ndarray:
-            """Apply y(x+shift) interpolation on the x_grid for one or more strike rows.
-
-            Matches the prior np.interp behavior used in rollback:
-            - left = values[..., 0]
-            - right = 0.0
-            """
-            vals = np.asarray(values, dtype=float)
-            was_1d = vals.ndim == 1
-            if was_1d:
-                vals = vals[None, :]
-
-            xq = x_grid + float(shift)
-            idx = np.searchsorted(x_grid, xq, side="right") - 1
-            idx = np.clip(idx, 0, len(x_grid) - 2)
-            x0 = x_grid[idx]
-            x1 = x_grid[idx + 1]
-            wgt = (xq - x0) / (x1 - x0)
-
-            left_mask = xq <= x_grid[0]
-            right_mask = xq >= x_grid[-1]
-
-            out = (1.0 - wgt)[None, :] * vals[:, idx] + wgt[None, :] * vals[:, idx + 1]
-            if np.any(left_mask):
-                out[:, left_mask] = vals[:, 0][:, None]
-            if np.any(right_mask):
-                out[:, right_mask] = 0.0
-
-            return out[0] if was_1d else out
+        ctx = self._get_or_build_american_context(float(T), steps=int(steps), event=event)
+        a = float(ctx["a"])
+        b = float(ctx["b"])
+        x_grid = ctx["x_grid"]
+        S_grid = ctx["S_grid"]
+        dx = float(ctx["dx"])
+        w = ctx["w"]
+        cos_k_x = ctx["cos_k_x"]
+        sin_k_x = ctx["sin_k_x"]
+        u = ctx["u"]
+        t_steps = ctx["t_steps"]
+        div_tol = float(ctx["div_tol"])
+        evt_tol = float(ctx["evt_tol"])
+        evt_time = ctx["evt_time"]
+        div_shift_ops_by_time = ctx["div_shift_ops_by_time"]
+        evt_ops = ctx["evt_ops"]
+        step_info = ctx["step_info"]
+        sum_log_total = float(ctx["sum_log_total"])
+        sum_log_up_to = ctx["sum_log_up_to"]
+        ix0 = int(ctx["ix0"])
+        wgt0 = float(ctx["wgt0"])
 
         # Terminal payoff on grid for all strikes (shape: (nK, M))
         Kcol = K.reshape((-1, 1))
@@ -577,43 +808,35 @@ class COSPricer:
         # Initial projection to cosine coefficients (shape: (N, nK))
         coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_grid * w).T) * dx
 
-        # Precompute step-wise quantities that do not depend on strike.
-        window = np.ones(N)
-        step_info = []
-        for step_idx in range(len(t_steps) - 1, 0, -1):
-            dt = float(t_steps[step_idx] - t_steps[step_idx - 1])
-            t_current = float(t_steps[step_idx - 1])
-            phi_dt = self.model.increment_char(u, dt)
-            step_info.append(
-                (
-                    dt,
-                    t_current,
-                    np.real(phi_dt).astype(float, copy=False),
-                    np.imag(phi_dt).astype(float, copy=False),
-                    float(np.exp(-self.model.r * dt)),
-                )
-            )
+        # Stack bases once to allow a single matmul per step:
+        # cont = disc * [term_cos; term_sin]^T @ [cos_k_x; sin_k_x]
+        # This avoids scaling the large (N,M) basis matrices each step.
+        cos_sin_stack = np.vstack([cos_k_x, sin_k_x])  # (2N, M)
+        term_stack = np.empty((2 * N, K.shape[0]), dtype=float)  # (2N, nK)
 
         for dt, t_current, re_phi, im_phi, disc_dt in step_info:
+            # Reconstruct continuation value for all strikes (shape: (nK, M))
             coeffs_mod = coeffs.copy()
             coeffs_mod[0, :] *= 0.5
 
-            # Reconstruct continuation value for all strikes (shape: (nK, M))
-            term_cos = (re_phi.reshape((-1, 1)) * coeffs_mod) * window.reshape((-1, 1))
-            term_sin = ((-im_phi).reshape((-1, 1)) * coeffs_mod) * window.reshape((-1, 1))
-            cont = (term_cos.T @ cos_k_x) + (term_sin.T @ sin_k_x)
-            cont *= disc_dt
+            # Fill stacked (2N, nK) term matrix (cheap; scales with N*nK)
+            term_stack[:N, :] = (re_phi.reshape((-1, 1)) * coeffs_mod)
+            term_stack[N:, :] = ((-im_phi).reshape((-1, 1)) * coeffs_mod)
+
+            cont = (term_stack.T @ cos_sin_stack) * disc_dt
 
             # Dividend mapping (same shift for all strikes)
-            for t_div, m_div in div_time_m:
-                if abs(t_div - t_current) <= div_tol and m_div > 0.0:
-                    cont = _interp_shifted(cont, np.log(1.0 - m_div))
+            # (times should coincide with t_steps; tolerate float noise)
+            for t_div, op in div_shift_ops_by_time.items():
+                if abs(float(t_div) - float(t_current)) <= div_tol:
+                    cont = self._apply_shift_operator(cont, op)
                     break
 
             # Discrete event mapping (binary jump) at known time (same shift for all strikes)
-            if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol:
-                cont_u = _interp_shifted(cont, float(event.u_log_eff))
-                cont_d = _interp_shifted(cont, float(event.d_log_eff))
+            if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol and evt_ops is not None:
+                op_u, op_d = evt_ops
+                cont_u = self._apply_shift_operator(cont, op_u)
+                cont_d = self._apply_shift_operator(cont, op_d)
                 cont = float(event.p) * cont_u + (1.0 - float(event.p)) * cont_d
 
             remaining_tau = float(T) - t_current
@@ -631,9 +854,7 @@ class COSPricer:
 
             elif is_call:
                 # Convert put-continuation to call-continuation via parity
-                sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
-                sum_log_up_to_t, _ = _dividend_adjustment(t_current, self.model.divs)
-                sum_log_rem = sum_log_total - sum_log_up_to_t
+                sum_log_rem = float(sum_log_total - float(sum_log_up_to.get(float(t_current), 0.0)))
                 spot_adj = S_grid * np.exp(-self.model.q * remaining_tau + sum_log_rem)
                 if event is not None and evt_time is not None and not event.ensure_martingale:
                     if float(t_current) < float(evt_time) <= float(T):
@@ -663,13 +884,8 @@ class COSPricer:
 
             # Cache trajectories at S0 for the first strike only
             if (return_trajectory or return_continuation_trajectory):
-                x0 = float(np.log(self.model.S0))
-                # Linear interpolation weights at x0
-                ix = int(np.searchsorted(x_grid, x0, side="right") - 1)
-                ix = max(0, min(ix, len(x_grid) - 2))
-                wgt0 = float((x0 - x_grid[ix]) / (x_grid[ix + 1] - x_grid[ix]))
                 def _interp_at_s0(arr_1d: np.ndarray) -> float:
-                    return float((1.0 - wgt0) * arr_1d[ix] + wgt0 * arr_1d[ix + 1])
+                    return float((1.0 - wgt0) * arr_1d[ix0] + wgt0 * arr_1d[ix0 + 1])
 
                 if return_continuation_trajectory and cont_trajectory_cache is not None:
                     if direct_call_with_divs:
@@ -692,16 +908,11 @@ class COSPricer:
         coeffs_mod[0, :] *= 0.5
         V0_grid = coeffs_mod.T @ cos_k_x  # (nK, M)
 
-        x0 = float(np.log(self.model.S0))
-        ix = int(np.searchsorted(x_grid, x0, side="right") - 1)
-        ix = max(0, min(ix, len(x_grid) - 2))
-        wgt0 = float((x0 - x_grid[ix]) / (x_grid[ix + 1] - x_grid[ix]))
-        val0 = (1.0 - wgt0) * V0_grid[:, ix] + wgt0 * V0_grid[:, ix + 1]
+        val0 = (1.0 - wgt0) * V0_grid[:, ix0] + wgt0 * V0_grid[:, ix0 + 1]
 
         if direct_call_with_divs:
             prices[:] = val0
         elif is_call:
-            sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
             forward_adj = self.model.S0 * np.exp(-self.model.q * T + sum_log_total)
             if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
                 forward_adj *= float(event.mean_factor)

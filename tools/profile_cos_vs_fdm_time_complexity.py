@@ -18,12 +18,19 @@ Run:
 
 from __future__ import annotations
 
+import os
+import sys
 import time
 import math
 from dataclasses import dataclass
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+# Allow running via: `python tools/profile_cos_vs_fdm_time_complexity.py`
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from american_options import GBMCHF, cash_divs_to_proportional_divs
 from american_options.engine import COSPricer, forward_price
