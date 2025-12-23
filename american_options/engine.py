@@ -536,135 +536,178 @@ class COSPricer:
         w[0] = 0.5
         w[-1] = 0.5
 
-        for j, Kval in enumerate(K):
-            # Terminal payoff
+        def _interp_shifted(values: np.ndarray, shift: float) -> np.ndarray:
+            """Apply y(x+shift) interpolation on the x_grid for one or more strike rows.
+
+            Matches the prior np.interp behavior used in rollback:
+            - left = values[..., 0]
+            - right = 0.0
+            """
+            vals = np.asarray(values, dtype=float)
+            was_1d = vals.ndim == 1
+            if was_1d:
+                vals = vals[None, :]
+
+            xq = x_grid + float(shift)
+            idx = np.searchsorted(x_grid, xq, side="right") - 1
+            idx = np.clip(idx, 0, len(x_grid) - 2)
+            x0 = x_grid[idx]
+            x1 = x_grid[idx + 1]
+            wgt = (xq - x0) / (x1 - x0)
+
+            left_mask = xq <= x_grid[0]
+            right_mask = xq >= x_grid[-1]
+
+            out = (1.0 - wgt)[None, :] * vals[:, idx] + wgt[None, :] * vals[:, idx + 1]
+            if np.any(left_mask):
+                out[:, left_mask] = vals[:, 0][:, None]
+            if np.any(right_mask):
+                out[:, right_mask] = 0.0
+
+            return out[0] if was_1d else out
+
+        # Terminal payoff on grid for all strikes (shape: (nK, M))
+        Kcol = K.reshape((-1, 1))
+        if direct_call_with_divs:
+            V_grid = np.maximum(S_grid.reshape((1, -1)) - Kcol, 0.0)
+        else:
+            # Work in put-space for stability; parity conversions handle call output.
+            V_grid = np.maximum(Kcol - S_grid.reshape((1, -1)), 0.0)
+
+        # Initial projection to cosine coefficients (shape: (N, nK))
+        coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_grid * w).T) * dx
+
+        # Precompute step-wise quantities that do not depend on strike.
+        window = np.ones(N)
+        step_info = []
+        for step_idx in range(len(t_steps) - 1, 0, -1):
+            dt = float(t_steps[step_idx] - t_steps[step_idx - 1])
+            t_current = float(t_steps[step_idx - 1])
+            phi_dt = self.model.increment_char(u, dt)
+            step_info.append(
+                (
+                    dt,
+                    t_current,
+                    np.real(phi_dt).astype(float, copy=False),
+                    np.imag(phi_dt).astype(float, copy=False),
+                    float(np.exp(-self.model.r * dt)),
+                )
+            )
+
+        for dt, t_current, re_phi, im_phi, disc_dt in step_info:
+            coeffs_mod = coeffs.copy()
+            coeffs_mod[0, :] *= 0.5
+
+            # Reconstruct continuation value for all strikes (shape: (nK, M))
+            term_cos = (re_phi.reshape((-1, 1)) * coeffs_mod) * window.reshape((-1, 1))
+            term_sin = ((-im_phi).reshape((-1, 1)) * coeffs_mod) * window.reshape((-1, 1))
+            cont = (term_cos.T @ cos_k_x) + (term_sin.T @ sin_k_x)
+            cont *= disc_dt
+
+            # Dividend mapping (same shift for all strikes)
+            for t_div, m_div in div_time_m:
+                if abs(t_div - t_current) <= div_tol and m_div > 0.0:
+                    cont = _interp_shifted(cont, np.log(1.0 - m_div))
+                    break
+
+            # Discrete event mapping (binary jump) at known time (same shift for all strikes)
+            if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol:
+                cont_u = _interp_shifted(cont, float(event.u_log_eff))
+                cont_d = _interp_shifted(cont, float(event.d_log_eff))
+                cont = float(event.p) * cont_u + (1.0 - float(event.p)) * cont_d
+
+            remaining_tau = float(T) - t_current
+
             if direct_call_with_divs:
-                V_grid = np.maximum(S_grid - Kval, 0.0)
-            else:
-                # Puts are priced directly. Calls without discrete dividends use a parity-based
-                # rollback on put coefficients for stability.
-                V_grid = np.maximum(Kval - S_grid, 0.0)
-            
-            coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_grid * w)) * dx
-
-            for step_idx in range(len(t_steps) - 1, 0, -1):
-                dt = float(t_steps[step_idx] - t_steps[step_idx - 1])
-                phi_dt = self.model.increment_char(u, dt)
-                coeffs_mod = coeffs.copy()
-                coeffs_mod[0] *= 0.5
-                
-                # Spectral damping window (optional)
-                window = np.ones(N)
-                
-                # Reconstruct continuation value
-                term_cos = (np.real(phi_dt).reshape((-1, 1)) * coeffs_mod.reshape((-1, 1)) * window.reshape((-1, 1)))
-                cont = (term_cos * cos_k_x).sum(axis=0)
-                term_sin = (-np.imag(phi_dt).reshape((-1, 1)) * coeffs_mod.reshape((-1, 1)) * window.reshape((-1, 1)))
-                cont += (term_sin * sin_k_x).sum(axis=0)
-                cont *= np.exp(-self.model.r * dt)
-
-                # Dividend mapping
-                t_current = float(t_steps[step_idx - 1])
-                for t_div, m_div in div_time_m:
-                    if abs(t_div - t_current) <= div_tol and m_div > 0.0:
-                        shift = np.log(1.0 - m_div)
-                        # Correct mapping for proportional discrete dividends:
-                        # V_pre(x) = V_post(x + log(1-m))
-                        cont = np.interp(x_grid + shift, x_grid, cont, left=cont[0], right=0.0)
-                        break
-
-                # Discrete event mapping (binary jump) at known time
-                if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol:
-                    shift_u = float(event.u_log_eff)
-                    shift_d = float(event.d_log_eff)
-                    cont_u = np.interp(x_grid + shift_u, x_grid, cont, left=cont[0], right=0.0)
-                    cont_d = np.interp(x_grid + shift_d, x_grid, cont, left=cont[0], right=0.0)
-                    cont = float(event.p) * cont_u + (1.0 - float(event.p)) * cont_d
-
-                remaining_tau = float(T) - t_current
-                
-                if direct_call_with_divs:
-                    intrinsic = S_grid - Kval
-                    if use_softmax:
-                        xdiff = beta * (intrinsic - cont)
-                        m_stable = np.maximum(0.0, xdiff)
-                        V_prev = cont + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
-                    else:
-                        V_prev = np.maximum(intrinsic, cont)
-                    V_prev = np.maximum(V_prev, 0.0)
-                    V_prev_call = V_prev
-
-                elif is_call:
-                    # Convert put-continuation to call-continuation via parity
-                    sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
-                    sum_log_up_to_t, _ = _dividend_adjustment(t_current, self.model.divs)
-                    sum_log_rem = sum_log_total - sum_log_up_to_t
-                    spot_adj = S_grid * np.exp(-self.model.q * remaining_tau + sum_log_rem)
-                    if event is not None and evt_time is not None and not event.ensure_martingale:
-                        # If event is in the remaining horizon, include its mean factor in the forward-like adjustment
-                        if float(t_current) < float(evt_time) <= float(T):
-                            spot_adj = spot_adj * float(event.mean_factor)
-                    
-                    cont_call = cont + spot_adj - Kval * np.exp(-self.model.r * remaining_tau)
-                    intrinsic = S_grid - Kval
-                    
-                    if use_softmax:
-                        xdiff = beta * (intrinsic - cont_call)
-                        m_stable = np.maximum(0.0, xdiff)
-                        V_prev_call = cont_call + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
-                    else:
-                        V_prev_call = np.maximum(intrinsic, cont_call)
-                    V_prev_call = np.maximum(V_prev_call, 0.0)
-                    
-                    # Reproject back to put coefficients (parity)
-                    V_prev = V_prev_call - spot_adj + Kval * np.exp(-self.model.r * remaining_tau)
-                    # Note: Do NOT clip V_prev to 0 here if q > 0, as it can be negative.
-                    # However, for the COS method to be stable, we might need to handle the e^x growth.
+                intrinsic = S_grid.reshape((1, -1)) - Kcol
+                if use_softmax:
+                    xdiff = beta * (intrinsic - cont)
+                    m_stable = np.maximum(0.0, xdiff)
+                    V_prev = cont + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
                 else:
-                    # Direct put exercise
-                    intrinsic = Kval - S_grid
-                    if use_softmax:
-                        xdiff = beta * (intrinsic - cont)
-                        m_stable = np.maximum(0.0, xdiff)
-                        V_prev = cont + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
-                    else:
-                        V_prev = np.maximum(intrinsic, cont)
-                    V_prev = np.maximum(V_prev, 0.0)
-
-                # Cache trajectories at S0 for first strike only
-                if (return_trajectory or return_continuation_trajectory) and j == 0:
-                    x0 = float(np.log(self.model.S0))
-                    if return_continuation_trajectory:
-                        if direct_call_with_divs:
-                            cont_at_s0 = float(np.interp(x0, x_grid, cont))
-                        else:
-                            cont_at_s0 = float(np.interp(x0, x_grid, cont_call if is_call else cont))
-                        cont_trajectory_cache.append((t_current, cont_at_s0))
-                    if return_trajectory:
-                        if direct_call_with_divs:
-                            exercise_at_s0 = float(np.interp(x0, x_grid, V_prev_call))
-                        else:
-                            exercise_at_s0 = float(np.interp(x0, x_grid, V_prev_call if is_call else V_prev))
-                        trajectory_cache.append((t_current, exercise_at_s0))
-
-                coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_prev * w)) * dx
-
-            # Final value at t=0
-            V0 = 0.5 * coeffs[0] * cos_k_x[0] + (coeffs[1:, None] * cos_k_x[1:]).sum(axis=0)
-            val0 = float(np.interp(np.log(self.model.S0), x_grid, V0))
-            
-            if direct_call_with_divs:
-                prices[j] = val0
+                    V_prev = np.maximum(intrinsic, cont)
+                V_prev = np.maximum(V_prev, 0.0)
+                V_prev_call = V_prev
 
             elif is_call:
-                # Convert back to call price
+                # Convert put-continuation to call-continuation via parity
                 sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
-                forward_adj = self.model.S0 * np.exp(-self.model.q * T + sum_log_total)
-                if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
-                    forward_adj *= float(event.mean_factor)
-                prices[j] = val0 + forward_adj - Kval * np.exp(-self.model.r * T)
+                sum_log_up_to_t, _ = _dividend_adjustment(t_current, self.model.divs)
+                sum_log_rem = sum_log_total - sum_log_up_to_t
+                spot_adj = S_grid * np.exp(-self.model.q * remaining_tau + sum_log_rem)
+                if event is not None and evt_time is not None and not event.ensure_martingale:
+                    if float(t_current) < float(evt_time) <= float(T):
+                        spot_adj = spot_adj * float(event.mean_factor)
+
+                cont_call = cont + spot_adj.reshape((1, -1)) - Kcol * float(np.exp(-self.model.r * remaining_tau))
+                intrinsic = S_grid.reshape((1, -1)) - Kcol
+                if use_softmax:
+                    xdiff = beta * (intrinsic - cont_call)
+                    m_stable = np.maximum(0.0, xdiff)
+                    V_prev_call = cont_call + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
+                else:
+                    V_prev_call = np.maximum(intrinsic, cont_call)
+                V_prev_call = np.maximum(V_prev_call, 0.0)
+
+                # Reproject back to put-space (parity)
+                V_prev = V_prev_call - spot_adj.reshape((1, -1)) + Kcol * float(np.exp(-self.model.r * remaining_tau))
             else:
-                prices[j] = val0
+                intrinsic = Kcol - S_grid.reshape((1, -1))
+                if use_softmax:
+                    xdiff = beta * (intrinsic - cont)
+                    m_stable = np.maximum(0.0, xdiff)
+                    V_prev = cont + (m_stable + np.log(np.exp(-m_stable) + np.exp(xdiff - m_stable))) / beta
+                else:
+                    V_prev = np.maximum(intrinsic, cont)
+                V_prev = np.maximum(V_prev, 0.0)
+
+            # Cache trajectories at S0 for the first strike only
+            if (return_trajectory or return_continuation_trajectory):
+                x0 = float(np.log(self.model.S0))
+                # Linear interpolation weights at x0
+                ix = int(np.searchsorted(x_grid, x0, side="right") - 1)
+                ix = max(0, min(ix, len(x_grid) - 2))
+                wgt0 = float((x0 - x_grid[ix]) / (x_grid[ix + 1] - x_grid[ix]))
+                def _interp_at_s0(arr_1d: np.ndarray) -> float:
+                    return float((1.0 - wgt0) * arr_1d[ix] + wgt0 * arr_1d[ix + 1])
+
+                if return_continuation_trajectory and cont_trajectory_cache is not None:
+                    if direct_call_with_divs:
+                        cont_at_s0 = _interp_at_s0(cont[0])
+                    else:
+                        cont_at_s0 = _interp_at_s0((cont_call if is_call else cont)[0])
+                    cont_trajectory_cache.append((t_current, cont_at_s0))
+                if return_trajectory and trajectory_cache is not None:
+                    if direct_call_with_divs:
+                        ex_at_s0 = _interp_at_s0(V_prev_call[0])
+                    else:
+                        ex_at_s0 = _interp_at_s0((V_prev_call if is_call else V_prev)[0])
+                    trajectory_cache.append((t_current, ex_at_s0))
+
+            # Re-project value function back to cosine coefficients
+            coeffs = (2.0 / (b - a)) * (cos_k_x @ (V_prev * w).T) * dx
+
+        # Final value at t=0 for all strikes: reconstruct and interpolate at S0
+        coeffs_mod = coeffs.copy()
+        coeffs_mod[0, :] *= 0.5
+        V0_grid = coeffs_mod.T @ cos_k_x  # (nK, M)
+
+        x0 = float(np.log(self.model.S0))
+        ix = int(np.searchsorted(x_grid, x0, side="right") - 1)
+        ix = max(0, min(ix, len(x_grid) - 2))
+        wgt0 = float((x0 - x_grid[ix]) / (x_grid[ix + 1] - x_grid[ix]))
+        val0 = (1.0 - wgt0) * V0_grid[:, ix] + wgt0 * V0_grid[:, ix + 1]
+
+        if direct_call_with_divs:
+            prices[:] = val0
+        elif is_call:
+            sum_log_total, _ = _dividend_adjustment(T, self.model.divs)
+            forward_adj = self.model.S0 * np.exp(-self.model.q * T + sum_log_total)
+            if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
+                forward_adj *= float(event.mean_factor)
+            prices[:] = val0 + forward_adj - K * np.exp(-self.model.r * T)
+        else:
+            prices[:] = val0
 
         if return_trajectory and trajectory_cache is not None:
             trajectory_cache.sort(key=lambda z: z[0])
