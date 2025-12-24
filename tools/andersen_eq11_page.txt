@@ -1,0 +1,31 @@
+===== PAGE 25 =====
+American Put Option Price (1)
+We need an equation for the American put option price, given the
+boundary. Here it is:
+Proposition 1. Let p (t, S) be the timet price of a European put option with
+maturity T and strikeK. For the dividend-paying stockS(t), the American put
+option priceP is given by
+P(t, S)= p(t, S)+ rK
+∫T
+t
+e−r(u−t)E
+(
+1{S(u)<S∗
+T (u)}|S(t)= S
+)
+du
+− (r − µ)
+∫T
+t
+e−r(u−t)Et
+(
+1{S(u)<S∗
+T (u)}S(u)|S(t)= S
+)
+du, (11)
+for allS ≥ S∗
+T (t).
+The result is a generalization of Goetsche and Vellekoep (Math.
+Finance, 2011) to cover the (practically important) caseµ ̸= r.
+American Options – with Dividends – p. 25/36
+

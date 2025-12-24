@@ -3,7 +3,7 @@
 Produces PNGs in figs/:
 - cos_vs_bs_gbm.png: COS European vs Black-Scholes (no divs).
 - american_hard_vs_soft.png: American GBM hard max vs softmax rollback and intrinsic.
-- levy_vs_equiv_gbm.png: Merton/Kou/VG vs their variance-matched GBM proxies.
+- levy_vs_equiv_gbm.png: Merton/Kou/VG/CGMY vs their variance-matched GBM proxies (in IV space).
 - american_dividend_continuation.png: European vs American continuation at t=0.
 - american_through_time.png: COS European, American, and FDM comparison through time.
 """
@@ -23,6 +23,8 @@ from american_options import (
     MertonCHF,
     KouCHF,
     VGCHF,
+    CGMYCHF,
+    CompositeLevyCHF,
     cash_divs_to_proportional_divs,
     equivalent_gbm,
 )
@@ -54,6 +56,50 @@ def bs_call(S, K, r, q, vol, T):
     d1 = (np.log(S / K) + (r - q + 0.5 * sigma ** 2) * T) / (sigma * np.sqrt(T))
     d2 = d1 - sigma * np.sqrt(T)
     return S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
+
+
+def bs_implied_vol_call(*, price: float, S0: float, K: float, r: float, q: float, T: float, vol_lo: float = 1e-8, vol_hi: float = 2.0, max_hi: float = 8.0) -> float:
+    """Black–Scholes implied vol for a call (spot S0, cont. carry r,q).
+
+    Returns 0.0 when the price is at intrinsic within tolerance.
+    Returns NaN when the price is outside no-arbitrage bounds or bracketing fails.
+    """
+    price = float(price)
+    if not np.isfinite(price):
+        return float("nan")
+    if T <= 0:
+        return 0.0
+
+    disc_r = float(np.exp(-r * T))
+    disc_q = float(np.exp(-q * T))
+    intrinsic = max(float(S0) * disc_q - float(K) * disc_r, 0.0)
+    upper = float(S0) * disc_q
+
+    # Tolerances: allow tiny numerical violations.
+    if price <= intrinsic + 1e-14:
+        return 0.0
+    if price < intrinsic - 1e-10 or price > upper + 1e-10:
+        return float("nan")
+
+    def f(vol: float) -> float:
+        return float(bs_call(float(S0), float(K), float(r), float(q), float(vol), float(T)) - price)
+
+    lo = float(vol_lo)
+    hi = float(vol_hi)
+    flo = f(lo)
+    fhi = f(hi)
+
+    while np.isfinite(flo) and np.isfinite(fhi) and np.sign(flo) == np.sign(fhi) and hi < max_hi:
+        hi = min(max_hi, hi * 1.5)
+        fhi = f(hi)
+
+    if not (np.isfinite(flo) and np.isfinite(fhi)):
+        return float("nan")
+    if np.sign(flo) == np.sign(fhi):
+        return float("nan")
+
+    res = root_scalar(f, bracket=(lo, hi), method="brentq")
+    return float(res.root) if res.converged else float("nan")
 
 
 class FDMPricer:
@@ -293,53 +339,182 @@ def plot_american_hard_vs_soft():
 
 
 def plot_levy_vs_equiv_gbm():
-    S0, r, q, T = 100.0, 0.02, 0.0, 1.0
-    K = np.linspace(70, 130, 61)
+    S0, r, q, T = 100.0, 0.02, 0.0, 0.05
+    
+    # Normalize all models to the same 2nd moment (c2 = Var[ln S_T]) corresponding to GBM vol=0.20.
+    target_vol = 0.20
+    target_c2 = float((target_vol ** 2) * T)
+    target_c2_half = 0.5 * target_c2
 
-    # Merton (moderate jumps)
-    merton = MertonCHF(S0, r, q, {}, {"vol": 0.2, "lam": 0.1, "muJ": -0.05, "sigmaJ": 0.1})
-    m_gbm = equivalent_gbm(merton, T)
-    pr_m = COSPricer(merton, N=512, L=8.0)
-    pr_mg = COSPricer(m_gbm, N=512, L=8.0)
+    K = S0 * np.exp(r*T + np.linspace(-1.0, 1.0, 301) * target_vol * np.sqrt(T) * 3.0)
+
+    # Equity-like left skew parameters (heuristic, for diagnostics)
+    # We tune (vol, sigma, C) so that each non-flat model has Var[ln S_T] = target_c2.
+
+    def _merton_params_for_c2(c2_target: float) -> dict:
+        # Choose jump-shape params (equity-like downside risk), then solve diffusion vol to match c2.
+        lam = 0.8
+        muJ = -0.08
+        sigmaJ = 0.08
+        jump_c2 = lam * T * (muJ ** 2 + sigmaJ ** 2)
+        resid = float(c2_target - jump_c2)
+        if resid < -1e-14:
+            raise RuntimeError(f"Merton jump variance exceeds target c2: jump_c2={jump_c2} > c2_target={c2_target}")
+        vol = float(np.sqrt(max(resid / T, 0.0)))
+        return {"vol": vol, "lam": lam, "muJ": muJ, "sigmaJ": sigmaJ}
+
+    # Merton (downside jump risk). Tune diffusion vol so c2 matches.
+    merton_params = _merton_params_for_c2(target_c2)
+    merton = MertonCHF(S0, r, q, {}, merton_params)
+    pr_m = COSPricer(merton, N=512, L=10.0)
     pm = pr_m.european_price(K, T)
-    pmg = pr_mg.european_price(K, T)
+    print(
+        f"Merton params: vol={merton_params['vol']:.4f} lam={merton_params['lam']} "
+        f"muJ={merton_params['muJ']} sigmaJ={merton_params['sigmaJ']}"
+    )
 
-    # Kou (small intensity, symmetric-ish)
-    kou = KouCHF(S0, r, q, {}, {"vol": 0.2, "lam": 0.05, "p": 0.5, "eta1": 15.0, "eta2": 18.0})
-    k_gbm = equivalent_gbm(kou, T)
-    pr_k = COSPricer(kou, N=512, L=8.0)
-    pr_kg = COSPricer(k_gbm, N=512, L=8.0)
+    def _kou_params_for_c2(c2_target: float) -> dict:
+        lam = 0.6
+        p = 0.25
+        eta1 = 30.0
+        eta2 = 8.0
+        jump_c2 = lam * T * (p * 2.0 / (eta1 ** 2) + (1.0 - p) * 2.0 / (eta2 ** 2))
+        resid = float(c2_target - jump_c2)
+        if resid < -1e-14:
+            raise RuntimeError(f"Kou jump variance exceeds target c2: jump_c2={jump_c2} > c2_target={c2_target}")
+        vol = float(np.sqrt(max(resid / T, 0.0)))
+        return {"vol": vol, "lam": lam, "p": p, "eta1": eta1, "eta2": eta2}
+
+    # Kou (asymmetric jumps: more/larger negative jumps). Tune diffusion vol so c2 matches.
+    kou_params = _kou_params_for_c2(target_c2)
+    kou = KouCHF(S0, r, q, {}, kou_params)
+    pr_k = COSPricer(kou, N=512, L=10.0)
     pk = pr_k.european_price(K, T)
-    pkg = pr_kg.european_price(K, T)
+    print(
+        f"Kou params: vol={kou_params['vol']:.4f} lam={kou_params['lam']} p={kou_params['p']} "
+        f"eta1={kou_params['eta1']} eta2={kou_params['eta2']}"
+    )
 
-    # VG (Gaussian limit mapping)
-    vol_vg = 0.25
-    theta = -0.5 * vol_vg * vol_vg
-    vg = VGCHF(S0, r, q, {}, {"theta": theta, "sigma": vol_vg, "nu": 1e-4})
-    vg_gbm = equivalent_gbm(vg, T)
-    pr_v = COSPricer(vg, N=512, L=8.0)
-    pr_vg = COSPricer(vg_gbm, N=512, L=8.0)
+    def _vg_params_for_c2(c2_target: float, *, theta: float, nu: float) -> dict:
+        # Var[X_T] = T*(sigma^2 + theta^2*nu)
+        per_t = float(c2_target / T)
+        resid = float(per_t - (theta ** 2) * nu)
+        if resid < -1e-14:
+            raise RuntimeError(f"VG theta^2*nu exceeds target variance rate: theta^2*nu={theta**2 * nu} > {per_t}")
+        sigma = float(np.sqrt(max(resid, 0.0)))
+        return {"theta": float(theta), "sigma": sigma, "nu": float(nu)}
+
+    # VG (non-Gaussian; negative theta for left skew). Tune sigma so c2 matches.
+    vg_params = _vg_params_for_c2(target_c2, theta=-0.3, nu=0.25)
+    vg = VGCHF(S0, r, q, {}, vg_params)
+    pr_v = COSPricer(vg, N=512, L=10.0)
     pv = pr_v.european_price(K, T)
-    pvg = pr_vg.european_price(K, T)
+    print(f"VG params: sigma={vg_params['sigma']:.4f} theta={vg_params['theta']} nu={vg_params['nu']}")
 
-    fig, ax = plt.subplots(3, 2, figsize=(10, 10), sharex=True)
+    # CGMY (asymmetric tails: G < M => heavier negative tail). Tune C so c2 matches.
+    from scipy.special import gamma as sp_gamma
 
-    def block(row, prices, proxy, title):
-        ax[row, 0].plot(K, prices, label=title)
-        ax[row, 0].plot(K, proxy, "--", label="equiv GBM")
-        ax[row, 0].set_ylabel("Price")
-        ax[row, 0].legend()
-        ax[row, 0].set_title(title)
+    G_c = 1.5
+    M_c = 10.0
+    Y_c = 1.3
+    denom = float(T * sp_gamma(2.0 - Y_c) * (np.exp((Y_c - 2.0) * np.log(M_c)) + np.exp((Y_c - 2.0) * np.log(G_c))))
+    C_c = float(target_c2 / max(denom, 1e-300))
+    cgmy = CGMYCHF(S0, r, q, {}, {"C": C_c, "G": G_c, "M": M_c, "Y": Y_c})
+    pr_c = COSPricer(cgmy, N=512, L=10.0)
+    pc = pr_c.european_price(K, T)
+    print(f"CGMY params: C={C_c} G={G_c} M={M_c} Y={Y_c}")
 
-        ax[row, 1].plot(K, prices - proxy, label="diff")
-        ax[row, 1].axhline(0, color="k", lw=1)
-        ax[row, 1].legend()
-        ax[row, 1].set_title(f"{title} - GBM proxy")
+    # Composite models: split total c2 50/50 between finite-activity and infinite-activity components.
+    merton_half_params = _merton_params_for_c2(target_c2_half)
+    kou_half_params = _kou_params_for_c2(target_c2_half)
+    # Use slightly milder VG skew for the half-variance component to keep sigma real.
+    vg_half_params = _vg_params_for_c2(target_c2_half, theta=-0.30, nu=0.15)
 
-    block(0, pm, pmg, "Merton")
-    block(1, pk, pkg, "Kou")
-    block(2, pv, pvg, "VG (theta=-0.5 sigma^2)")
+    merton_vg = CompositeLevyCHF(
+        S0,
+        r,
+        q,
+        {},
+        {
+            "components": [
+                {"type": "merton", "params": merton_half_params},
+                {"type": "vg", "params": vg_half_params},
+            ]
+        },
+    )
+    pr_mv = COSPricer(merton_vg, N=512, L=10.0)
+    pmv = pr_mv.european_price(K, T)
+    print(
+        "Merton+VG split params: "
+        f"Merton(vol={merton_half_params['vol']:.4f}, lam={merton_half_params['lam']}, muJ={merton_half_params['muJ']}, sigmaJ={merton_half_params['sigmaJ']}) "
+        f"VG(sigma={vg_half_params['sigma']:.4f}, theta={vg_half_params['theta']}, nu={vg_half_params['nu']})"
+    )
 
+    kou_vg = CompositeLevyCHF(
+        S0,
+        r,
+        q,
+        {},
+        {
+            "components": [
+                {"type": "kou", "params": kou_half_params},
+                {"type": "vg", "params": vg_half_params},
+            ]
+        },
+    )
+    pr_kv = COSPricer(kou_vg, N=512, L=10.0)
+    pkv = pr_kv.european_price(K, T)
+    print(
+        "Kou+VG split params: "
+        f"Kou(vol={kou_half_params['vol']:.4f}, lam={kou_half_params['lam']}, p={kou_half_params['p']}, eta1={kou_half_params['eta1']}, eta2={kou_half_params['eta2']}) "
+        f"VG(sigma={vg_half_params['sigma']:.4f}, theta={vg_half_params['theta']}, nu={vg_half_params['nu']})"
+    )
+
+    def to_iv(prices: np.ndarray) -> np.ndarray:
+        out = np.empty_like(prices, dtype=float)
+        for i, kk in enumerate(K):
+            out[i] = bs_implied_vol_call(price=float(prices[i]), S0=S0, K=float(kk), r=r, q=q, T=T)
+        return out
+
+    iv_m = to_iv(pm)
+    iv_k = to_iv(pk)
+    iv_v = to_iv(pv)
+    iv_c = to_iv(pc)
+    iv_mv = to_iv(pmv)
+    iv_kv = to_iv(pkv)
+    iv_gbm = np.full_like(K, float(target_vol), dtype=float)
+
+    fig, ax = plt.subplots(3, 2, figsize=(11, 9), sharex=True, sharey=True)
+
+    def panel(ax0, iv, title):
+        ax0.plot(K, iv, label=title)
+        ax0.plot(K, iv_gbm, "--", label=f"GBM (vol={target_vol:.2f})")
+        ax0.set_title(title)
+        ax0.legend()
+
+    # Sanity: ensure the second moment normalization actually holds.
+    for name, model in [
+        ("Merton", merton),
+        ("Kou", kou),
+        ("VG", vg),
+        ("CGMY", cgmy),
+        ("Merton+VG", merton_vg),
+        ("Kou+VG", kou_vg),
+    ]:
+        c2 = float(model._var2(T))
+        if not np.isfinite(c2) or abs(c2 - target_c2) > 1e-10:
+            raise RuntimeError(f"{name} c2 mismatch: got {c2}, expected {target_c2}")
+
+    panel(ax[0, 0], iv_m, "Merton")
+    panel(ax[0, 1], iv_k, "Kou")
+    panel(ax[1, 0], iv_v, "VG")
+    panel(ax[1, 1], iv_c, "CGMY")
+    panel(ax[2, 0], iv_mv, "Merton+VG")
+    panel(ax[2, 1], iv_kv, "Kou+VG")
+
+    ax[0, 0].set_ylabel("Implied vol")
+    ax[1, 0].set_ylabel("Implied vol")
+    ax[2, 0].set_ylabel("Implied vol")
     ax[2, 0].set_xlabel("Strike")
     ax[2, 1].set_xlabel("Strike")
     fig.tight_layout()

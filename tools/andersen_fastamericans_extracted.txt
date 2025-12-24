@@ -1,0 +1,666 @@
+
+
+===== PAGE 1 =====
+Real Time American Option Pricing
+Leif Andersen
+Bank of America Merrill Lynch
+March 2015
+Partly based on joint work with D. Offengenden and M. Lake
+American Options – with Dividends – p. 1/36
+
+===== PAGE 2 =====
+First:
+Congratulations to Steve!
+American Options – with Dividends – p. 2/36
+
+===== PAGE 3 =====
+Agenda
+Motivation/Problem
+American options with Smooth Dividends
+Fixed-Point formulations for Exercise Boundary
+Test results
+American put with Dividends: Basic Properties
+Integral Equations for Boundary
+Boundary Results
+American Call Options with Dividends
+Extensions
+American Options – with Dividends – p. 3/36
+
+===== PAGE 4 =====
+Motivation/Problem (1)
+For this occasion, an old-school problem seemed in order.
+Sometimes, a problem that appears to be a little old in the tooth still
+has some surprises left.
+We will show how applying modern computational finance methods
+(MSCF-style) can improve the efficiency of American option pricing
+algorithms by at least 4 orders of magnitude.
+The method we will discuss, can produce better precision thana1 Mx
+1M (!!) modern finite difference grid (12+ hours of work), in about 1/10
+seconds.
+And it can calculate in the order of 100,000 prices at the same
+precision as a 10,000-step binomial tree.
+Without cheating: no parallel processing, no caching, ..
+American Options – with Dividends – p. 4/36
+
+===== PAGE 5 =====
+Motivation/Problem (2)
+The application we have in mind is real-time risk management
+exchange-traded options in the US and Asia, where pricing/quotation
+standards all revolve around Black-Scholes modeling.
+Our approach is to apply careful optimization on integral equation(s)
+for the American exercise boundary, a method that has often been
+neglected in favor of the more popular tree, lattice, and Monte Carlo
+methods (not to mention method of lines, convolution methods, and
+more).
+Our primary application is options on futures, but we also discuss
+options on underlyings with discrete dividends.
+Reference paper (ALO): Andersen, L., M. Lake, and D. Offengenden,
+“High Performance American Option Pricing,” ssrn.com
+American Options – with Dividends – p. 5/36
+
+===== PAGE 6 =====
+Setup (1)
+First, for reference consider an underlying security with value S(t)
+with “classical” dynamics:
+dS(t)/S(t)=( r − q) dt + σd W(t),
+where r, q, σare constants. (Can handle time-dependence, but makes
+notation annoying)
+Introduce aK-strike, T-maturity American put option, paying
+(K − S(ν))+ if exercised timeν ∈[0,T ]. American call can be found
+by put-call symmetry.
+Well-known that the optimal strategy is to exercise whenS(t) ≤ S∗
+T (t)
+for some deterministic,T indexed exercise boundaryS∗
+T , satisfying
+S∗
+T (t)=
+
+
+
+K, t = T,
+K min(1, r/q),t = T − .
+American Options – with Dividends – p. 6/36
+
+===== PAGE 7 =====
+Setup (2)
+For time-homogenous arguments (as here) common to write
+S∗
+T (t)= B(T − t)= B(τ)
+If alsoV (T − t, S) is the timet price of the American put forS(t)= S ,
+then forS>B ,
+Vτ − (r − q)VS − 1
+2S2σ2VSS + rV =0 ,V (0,S )=( K − S)+ , (1)
+subject to thevalue match condition
+V (τ,B (τ)) =K − B(τ) (2)
+and thesmooth pasting condition
+VS(τ,B (τ)) =−1. (3)
+American Options – with Dividends – p. 7/36
+
+===== PAGE 8 =====
+Setup (3)
+Differentiating with respect toτ and using the smooth pasting
+condition:
+Vτ (τ,B (τ)) = 0. (4)
+And using the PDE shows that
+VSS (τ,B (τ)) = 2( rK − qB(τ))
+B(τ)2σ2 . (5)
+American Options – with Dividends – p. 8/36
+
+===== PAGE 9 =====
+Pricing given Boundary
+From the basic PDE and (2)-(3), it has classically been shownthat the
+American put price must satisfy (S ≤ B)
+V (τ,S )= v (τ,S )+
+∫τ
+0
+rKe−r(τ−u)Φ( −d− (τ − u, S/B(u))) du
+−
+∫τ
+0
+qSe−q(τ−u)Φ( −d+ (τ − u, S/B(u))) du (6)
+Where Φ is the Gaussian CDF , and
+d± (s, x)= ln x + s
+(
+r − q ± 1
+2 σ2)
+σ√s
+and v(τ,S ) is the European put price (Black-Scholes formula).
+American Options – with Dividends – p. 9/36
+
+===== PAGE 10 =====
+Location of Boundary (1)
+To use the integral pricing expression (6), we need to locatethe
+optimal exercise boundaryB.
+We have several possibilities here. The most obvious equation (most
+common in Finance) arises when one setsS = B(τ) in (6):
+K − B(τ)= v (τ,B (τ)) +
+∫τ
+0
+rKe−r(τ−u)Φ( −d− (τ − u, B(τ)/B(u))) du
+−
+∫τ
+0
+qB(τ)e−q(τ−u)Φ( −d+ (τ − u, B(τ)/B(u))) du. (7)
+We may, however, also use the smooth pasting equation (3) or the
+equations forVSS or forVτ to derive alternative equations.
+The numerical solution of all these boundary equations is traditionally
+done using adirect quadrature method, on an equidistant grid.
+Numerous reference works in this area.
+American Options – with Dividends – p. 10/36
+
+===== PAGE 11 =====
+Location of Boundary (2)
+A few recent papers suggest that to use a fixed point iteration,r a t h e r
+than direct quadrature. Here we write
+B(τ)= Ke−(r−q)τ N(τ,B )
+D(τ,B )
+where N and D are functionals.
+This suggests an algorithm where we iterate, starting from aguess,
+B(j)(τ)= Ke−(r−q)τ N(τ,B (j−1))
+D(τ,B (j−1)) ,j =1 , 2,...,m .
+Rewriting basic equations (such as 7) for the exercise boundary into
+fixed-point format can be done numerous ways, but only a few ones
+define efficient contraction mappings.
+American Options – with Dividends – p. 11/36
+
+===== PAGE 12 =====
+Location of Boundary (3)
+N and D depend on which boundary formulation we use. For the
+smooth pasting boundary equation, we getfixed point system A:
+N (τ,B )= φ (d−(τ,B (τ)/K))
+σ√τ + r
+∫ τ
+0
+eru
+σ√τ −u φ (d− (τ −u, B(τ)/B(u))) du,
+D(τ,B )= φ (d+(τ,B (τ)/K))
+σ√τ +Φ( d+(τ,B (τ)/K))
++ q
+(∫ τ
+0
+equΦ( d+ (τ −u, B(τ)/B(u))) du +
+∫ τ
+0
+equ
+σ√τ −u φ (d+ (τ −u, B(τ)/B(u)))
+)
+.
+The value match integral equation leads tofixed point system B:
+N (τ,B )=Φ( d−(τ,B (τ)/K)) +r
+∫ τ
+0
+eru (Φ( d− (τ −u, B(τ)/B(u)))) du,
+D (τ,B )=Φ( d+(τ,B (τ)/K)) +q
+∫ τ
+0
+equ (Φ( d+ (τ −u, B(τ)/B(u)))) du.
+American Options – with Dividends – p. 12/36
+
+===== PAGE 13 =====
+Collocation & Interpolation (1)
+ALO shows how to run the fixed point iteration in a modern manner,
+using a relaxed Jacobi-Newton iteration.
+But the fixed point systems cannot practically be solved for all τ
+simultaneously, so we need a way to discretize the system.
+A common approach involves discretizingτ to a grid,{τi}n
+i=1 and
+enforcing the fixed point condition at these points only. Other points
+on theB(τ) curve are found by polynomial interpolation; integrals can
+be resolved by (say) Gauss-Legendre integration.
+This is known as thecollocation method.
+ALO shows how this method is very effective,if done right.
+American Options – with Dividends – p. 13/36
+
+===== PAGE 14 =====
+Collocation & Interpolation (2)
+WRONG:a )i n t e r p o l a t eo nB directly; b) use an equidistant grid; .
+RIGHT: a) interpolate on a transformed functionH(√τ)=l n B(τ)/X,
+X = K min(1, r/q); and b) Use Chebyshev spacing in√τ domain.
+Justification and full boundary algorithm is given in (excruciating)
+detail in ALO.
+Let m: number of iterations;n: number of collocation points;l:
+number of Gauss-Legendre points in the numerical integration. Then
+computational cost is of order
+c1 · lmn2 + c2 · lmn
+where first term is from interpolation and second from integration.
+c2 ≫ c1.
+American Options – with Dividends – p. 14/36
+
+===== PAGE 15 =====
+Sample Tests + Speed (1)
+Precision test.Use high number of collocation and integration nodes
+to a high-precision estimate (for benchmark purposes).
+Method Dimensions American Premium Error Timing (sec)
+FP-A (l =1 0 2 4, m =1 6, n =3 2) 0.10695270275 - 1.40E-01
+PDE 100 x 100 0.10279251763 4.16E-03 3.10E-03
+PDE 500 x 500 0.10672868802 3.94E-03 9.50E-03
+PDE 1,000 x 1,000 0.10689130239 1.63E-04 3.07E-02
+PDE 5,000 x 5,000 0.10694949491 5.82E-05 7.83E-01
+PDE 10,000 x 10,000 0.10695176844 2.27E-06 3.40E+00
+PDE 50,000 x 50,000 0.10695264506 8.77E-07 9.27E+01
+PDE 100,000 x 100,000 0.10695268484 3.98E-08 4.17E+02
+PDE 250,000 x 250,000 0.10695271369 2.88E-08 2.87E+03
+PDE 500,000 x 500,000 0.10695270841 5.28E-09 1.14E+04
+Table 1:S = K = 100, r = 1 = 5%, T =1 , σ =0 .25.3 . 3 3 G H zP C .
+Additional tests show the result for FP-A in table is accuratet oa b o u t
+12 digits. Would theoretically need a 10Mx10M PDE solver forthis.
+American Options – with Dividends – p. 15/36
+
+===== PAGE 16 =====
+Sample Tests + Speed (2)
+Speed test.1,675 different options,T ∈[0, 3].
+Bin 100 Bin 1,000 Bin 10,000
+RMSE 2.1E-02 2.0E-03 2.1E-04
+RRMSE 3.2E-03 2.7E-04 3.0E-05
+Options/sec 12,900 800 ?
+Algo FP-A, various combinations ofl, m, n. No caching, single CPU.
+(m,n): (1,4) (2,4) (1,6) (2,6) (3,6) (4,6) (2,10) (3,10) (4, 10)
+l=5 RMSE 3.1E-04 3.1E-04 8.3E-05 4.4E-05 5.6E-05 5.7E-05 5.2E- 05 6.4E-05 6.6E-05
+RRMSE 2.0E-05 1.8E-05 3.0E-06 1.5E-06 1.7E-06 1.7E-06 1.6E -06 1.8E-06 1.9E-06
+Options/sec 79,700 61,200 61,200 45,500 36,000 29,900 29,3 00 22,600 18,500
+l=7 RMSE 3.4E-04 3.3E-04 8.4E-05 1.5E-05 1.3E-05 1.4E-05 7.3E- 06 1.6E-05 1.8E-05
+RRMSE 2.0E-05 1.9E-05 2.6E-06 6.6E-07 6.8E-07 6.4E-07 3.6E -07 5.3E-07 5.6E-07
+Options/sec 74,500 55,300 57,200 39,500 30,900 25,500 25,5 00 19,200 15,400
+l=15 RMSE 3.5E-04 3.4E-04 8.9E-05 2.3E-05 1.3E-05 1.2E-05 1.6E- 05 4.2E-06 3.0E-06
+RRMSE 2.0E-05 1.9E-05 2.6E-06 7.6E-07 6.5E-07 6.5E-07 4.8E -07 3.7E-07 3.5E-07
+Options/sec 56,300 37,500 41,250 26,300 19,300 15,200 15,5 00 11,100 8,700
+American Options – with Dividends – p. 16/36
+
+===== PAGE 17 =====
+More on tests
+We also ran tests against other methods, including the related
+fixed-point methods in Kimet al (2013) and Cortazaret al (2013).
+We are alwaysfar better than any convergent method
+Robustness tested on 10,000’s of options (see ALO)
+For the caser = q, fixed point system A is about 5-10 times more
+efficient that fixed point system B.
+For otther configurations, FP-A and FP-B are about equal – butFP-A
+is more robust, especially for convection-dominated dynamics.
+American Options – with Dividends – p. 17/36
+
+===== PAGE 18 =====
+Boundary Asymptotes
+Boundary Asymptotesr = 5%, µ =0 , σ =0 .25%, K = 130.
+Neither short nor long-dated asymptotes have wide range. Short
+asymptote ceases to exist after 2.8 years.
+American Options – with Dividends – p. 18/36
+
+===== PAGE 19 =====
+Setup with Dividends (1)
+Now extend the process forS(t) to the RCLL process
+dS(t)= µS(t) dt + σS (t) dW(t) −
+d∑
+i=1
+Di · 1ti=t
+..where {ti}d
+i=1 is a set of discrete dividend dates.
+Note that we, unlike existing literature, do NOT forceµ = r.T h i s
+ensures that we can model the fact that repo rates for stocks (as
+observed in forward prices, say) often differ from (OIS) discount rates.
+Also, it allows us to use a mixed discrete-continuous dividends model.
+But it is a fair bit of a complication..
+American Options – with Dividends – p. 19/36
+
+===== PAGE 20 =====
+Setup with Dividends (2)
+Here we focus on theproportional specification
+Di = ciS(ti−).
+This is convenient for several reasons, including the fact that there are
+no problem with crossing of zero + forward stock prices are easy to
+compute:
+F(t, u)= E (S(u)|S(t)) =S(t)eµ(u−t)G(t, u)
+..where
+G(t, u) ≜
+∏
+ti∈(t,u]
+(1 − ci).
+American Options – with Dividends – p. 20/36
+
+===== PAGE 21 =====
+American Put
+Even with discrete dividends, there is again an optimal boundary
+S∗
+T (t), below which the American put option should be exercised.
+Note: we don’t shift toB(T − t) and τ = T − t notation here, since the
+problem is no longer time-stationary.
+Above the exercise boundary and away from the dividend dates,t h e
+put option priceP(t, S) satisfies the usual Black-Scholes PDE:
+∂P
+∂t + µS ∂P
+∂S + 1
+2σ2S2 ∂2P
+∂S2 = rP, t /∈{ ti}d
+i=1,S > S ∗
+T (t),
+Across each dividend date, the put option does not lose exercise
+value (see below), wherefore we may impose the simple jump-type
+continuity conditionP (ti−,S (ti−)) =P (ti+,S (ti+)) , i.e.
+P (ti−,S )= P (ti+,S (1 − ci)) ,i =1 , 2,...,d .
+American Options – with Dividends – p. 21/36
+
+===== PAGE 22 =====
+Boundary (1)
+To characterize the boundary, we have as beforevalue matchand
+smooth pasting
+P(t, S∗
+T (t)) =K − S∗
+T (t),
+∂P (t, S)
+∂S |S=S∗
+T (t) = −1,t / ∈{ ti}d
+i=1.
+To further characterize the boundary, consider that it can never be
+optimal to exercise the option just prior to a dividend date,wherefore
+Lemma 1. The American put exercise boundaryS∗
+T (t) satisfies
+S∗
+T (ti−)=0 ,i =1 ,...,d , (8)
+and
+S∗
+T (T−)=
+
+
+
+K min
+(
+1, r
+r−µ
+)
+,r > µ ,
+Kr ≤ µ
+(9)
+American Options – with Dividends – p. 22/36
+
+===== PAGE 23 =====
+Boundary (2)
+We can also use carry arguments to prove:
+Lemma 2. For i =1 ,...,d define
+t∗
+i =
+
+
+
+max
+(
+ti + ln(1−ci)
+µ ,t i−1
+)
+,µ > 0,
+ti−1,µ ≤ 0,
+where necessarilyt∗
+i ∈[ti−1,t i).F o rt ∈[ti−1,t i) we then have
+S∗
+T (t) ≤
+
+
+
+K 1−e−r(ti−t)
+1−e(µ−r)(ti−t)(1−ci) ,t ∈(t∗
+i ,t i),
+K, t ∈[ti−1,t ∗
+i ].
+. (10)
+In particular, (8) holds fort ↑ti.
+The upper bound is a very good proxy for the boundary close to
+dividend dates
+American Options – with Dividends – p. 23/36
+
+===== PAGE 24 =====
+Boundary Shape
+Boundary shape for American Put w. 3 Proportional Dividends
+/g882/g1006/g1004
+/g1004
+/g1006/g1004
+/g1008/g1004
+/g1010/g1004
+/g1012/g1004
+/g1005/g1004/g1004
+/g1005/g1006/g1004
+/g1004/g1004 /g856 /g1006 /g1004 /g856 /g1008 /g1004 /g856 /g1010 /g1004 /g856 /g1012/g1005/g1005 /g856 /g1006
+American Options – with Dividends – p. 24/36
+
+===== PAGE 25 =====
+American Put Option Price (1)
+We need an equation for the American put option price, given the
+boundary. Here it is:
+Proposition 1. Let p (t, S) be the timet price of a European put option with
+maturity T and strikeK. For the dividend-paying stockS(t), the American put
+option priceP is given by
+P(t, S)= p(t, S)+ rK
+∫T
+t
+e−r(u−t)E
+(
+1{S(u)<S∗
+T (u)}|S(t)= S
+)
+du
+− (r − µ)
+∫T
+t
+e−r(u−t)Et
+(
+1{S(u)<S∗
+T (u)}S(u)|S(t)= S
+)
+du, (11)
+for allS ≥ S∗
+T (t).
+The result is a generalization of Goetsche and Vellekoep (Math.
+Finance, 2011) to cover the (practically important) caseµ ̸= r.
+American Options – with Dividends – p. 25/36
+
+===== PAGE 26 =====
+American Put Option Price (2)
+Proposition holds for a large class of dividends. For the proportional
+dividend type, we haveexplicitly (with q ≜ r − µ):
+P(t, S)= p(t, S)+ rK
+∫T
+t
+e−r(u−t)Φ( −d−(S/S∗
+T (u); t, u)) du
+− qS
+∫T
+t
+e−q(u−t)G(t, u)Φ( −d+(S/S∗
+T (u); t, u)) du, (12)
+for S ≥ S∗
+T (t).
+Here we have redefined
+d±(z; t, T)= ln z + µ(T − t)+l nG(t, T) ± 1
+2 σ2(T − t)
+σ
+√
+T − t .
+American Options – with Dividends – p. 26/36
+
+===== PAGE 27 =====
+American Put Option Price (3)
+Proof of Proposition is instructional, so we can give a sketch:
+Define H(t)= e−rtP(t, S(t)).W h e nS is below the boundary,
+H(t)= e−rt(K − S(t)) and
+dH(t)= −e−rtdS(t) − re−rt (K − S(t)) dt, S (t) <S ∗
+T (t).
+When S is above boundary,H is a martingale and (by BS equation)
+dH(t)= σe−rtS(t)∂P
+∂S dW(t)
+Right AT the boundary, there would normally (by Tanaka’s rule) be a
+local time contribution todH, but due to smooth pasting, it vanishes.
+And crossing dividend dates add no terms todH.
+Collecting, integrating to findH(T) − H(t) +f o r m i n gt i m et
+expectations pops out the result.
+American Options – with Dividends – p. 27/36
+
+===== PAGE 28 =====
+Boundary Fixed Point Formulation (1)
+By settingS = S∗
+T (t) in (12), we get an integral equation forS∗
+T (t):
+K−S∗
+T (t)= p (t, S∗
+T (t))+rK
+∫T
+t
+e−r(u−t)Φ( −d−(S∗
+T (t)/S∗
+T (u); t, u)) du
+− qS∗
+T (t)
+∫T
+t
+e−q(u−t)G(t, u)Φ( −d+(S∗
+T (t)/S∗
+T (u); t, u)) du.
+We can, after some work, arrange this for a fixed-point iteration
+S∗
+T (t)= K NT (t, S∗
+T )
+DT (t, S∗
+T ) (13)
+where
+NT (t, S∗
+T )= e−r(T−t)Φ( d−(S∗
+T (t)/K; t, T))
++ r
+∫T−
+t
+e−r(u−t)Φ( d−(S∗
+T (t)/S∗
+T (u); t, u)) du
+American Options – with Dividends – p. 28/36
+
+===== PAGE 29 =====
+Boundary Fixed Point Formulation (2)
+..and
+DT (t, S∗
+T )= e−q(T−t)G(t, T)Φ(d+(S∗
+T (t)/K; t, T))
++ q
+∫T−
+t
+e−q(u−t)G(t, u)Φ( d+(S∗
+T (t)/S∗
+T (u); t, u)) du
+−
+∑
+ti∈[t,T)
+e−q(ti−t) (G(t, ti) − G(t, ti−1)) .
+American Options – with Dividends – p. 29/36
+
+===== PAGE 30 =====
+Numerical Algorithm
+The fixed point system can be executed using a variation of the
+algorithm in ALO.
+In particular, given Lemma 2’s “periodic” constraintS∗
+T (ti−)=0 ,
+i =1 ,...,d , it makes sense to break the problem intod sub-problems,
+one per dividend period, and use ALO algorithm backwards to time 0
+from timetd.
+While Chebyshev spacing is still needed for the collocationscheme,
+we generally do not need to be as careful with boundary
+transformations fort<t d.
+With d dividends, the effort of the scheme is (better than)d +1 times
+that of the regular scheme. For single stocks,d is normally 4
+times/year.
+American Options – with Dividends – p. 30/36
+
+===== PAGE 31 =====
+American Call Options (1)
+Unlike the case for smooth dividends, there are no obvious parity
+results to extract American call prices from puts.
+American Calls, in fact, are very different from puts, and there are
+situations where the exercise boundary is completely degenerate,
+except for a few points.
+In this case, the American option price integral changes fromb e i n ga n
+integral in time along the boundary, to being (a convolution)o f
+integrals in asset space.
+For instance, in the case whereµ ≥ r, it is easy to see that the only
+possible exercise dates are atti−, i =1 ,...,d , just before each
+dividend.
+American Options – with Dividends – p. 31/36
+
+===== PAGE 32 =====
+American Call Options (2)
+In this case, we can introduce an exercise boundary (above which to
+exercise) as
+S∗
+T (t)=
+
+
+
+∞ ,t / ∈{ ti}∪ T
+Bi,t ∈{ ti}
+K, t = T
+That is, the American option effectively becomes a Bermudanone.
+For the American call option, continuity isnot necessarily preserved
+as time passes through an exercise date – so no continuity condition
+similar to that of a put holds.
+Indeed, ifS(ti−) ≥ Bi,t h e r ew i l lb ealoss of exercise valueas time
+moves fromti− to ti+.
+American Options – with Dividends – p. 32/36
+
+===== PAGE 33 =====
+American Call – Jump Condition
+We can capture this as
+C (ti−,S )=
+
+
+
+C (ti+,S (1 − ci)) ,S < B i,
+S − K, S ≥ Bi.
+Or equivalently
+C (ti−,S ) = max (C (ti+,S (1 − ci)) ,S − K) .
+When we attempt to repeat the proof of the American put valuation
+formula, these jump conditions add a new type of term to the formulas.
+American Options – with Dividends – p. 33/36
+
+===== PAGE 34 =====
+American Call Valuation Formulas (1)
+The same basic method now leads to
+Proposition 2. Let c (t, S) be the timet price of a European call option with
+maturity T and strikeK.A s s u m et h a tµ ≥ r. For the dividend-paying stockS(t),
+the American call option price is given by
+C(t, S)= c (t, S)+
+∑
+ti>t
+e−r(ti−t)E
+(
+1S(ti−)≥Bi C(ti+,S (ti+))|S(t)= S
+)
+−
+∑
+ti>t
+e−r(ti−t)E
+(
+1S(ti−)≥Bi (S(ti−) − K) |S(t)= S
+)
+. (14)
+Here, an irritating fact is the dependence onC (ti+,S (1 − ci)), which
+is not known explicitly.
+American Options – with Dividends – p. 34/36
+
+===== PAGE 35 =====
+American Call Valuation Formulas (2)
+For the location ofBi,w em a yw r i t e
+C (ti+,B i(1 − ci)) =Bi − K
+which also depends onC (ti+,S (1 − ci)).
+In practice, we need to rely on a lattice/integration methodon the{ti}
+grid, such as Fast Gauss Transform, to uncoverC (ti+,S (1 − ci)).W e
+are forced to move closer to traditional methods for Americano p t i o n s .
+We note, however, that the representation in Proposition gives a static
+hedge for the American Call, but that is another story...
+American Options – with Dividends – p. 35/36
+
+===== PAGE 36 =====
+American Call Valuation Formulas (3)
+The case whereµ<r becomes ahybrid: the exercise strategy will
+come into existence between the exercise dates, and the valuation
+expression will contain elements of “vertical” (asset) integration
+around discrete dividend dates; and “horizontal” (time) integration
+around discrete dividend dates.
+We omit the equations; they are easy (but lengthy) extensionso ft h e
+case µ ≥ r.
+The topology of the resulting exercise boundary can be complicated,
+depending on the size ofr − µ.
+Still outstanding question: why are calls so difficult?
+American Options – with Dividends – p. 36/36

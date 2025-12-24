@@ -3,6 +3,7 @@
 Outputs (default, depends on --model):
   - figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html
   - figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html
+  - figs/event_iv_surfaces_gbm_vs_kouvg_linked_3d.html
 
 Notes
 -----
@@ -28,7 +29,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if _REPO_ROOT not in sys.path:
   sys.path.insert(0, _REPO_ROOT)
 
-from american_options import DiscreteEventJump, GBMCHF, MertonCHF, VGCHF
+from american_options import CompositeLevyCHF, DiscreteEventJump, GBMCHF, MertonCHF, VGCHF
 from american_options.engine import COSPricer
 
 
@@ -255,7 +256,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--model",
-        choices=("vg", "merton"),
+      choices=("vg", "merton", "kouvg"),
         default="vg",
         help="Which model to use for the right-hand surface.",
     )
@@ -280,15 +281,25 @@ def main(argv: list[str] | None = None) -> None:
     q = 0.0
 
     event_time = 0.05
-    sigma = 0.15
+    sigma = 0.20
     vg_theta = -0.4
     vg_nu = 0.02
     merton_lam = 2.5
     merton_muJ = -0.05
     merton_sigmaJ = 0.02
+    # Kou+VG composite: choose a Kou jump component + a VG component
+    # and split instantaneous variance 50/50.
+    # These defaults are chosen to produce a more equity-like left skew (less symmetric wings),
+    # similar in spirit to `plot_diagnostics.py`'s Kou+VG example.
+    kou_lam = 0.6
+    kou_p = 0.25
+    kou_eta1 = 30.0
+    kou_eta2 = 8.0
+    kou_vg_theta = -0.30
+    kou_vg_nu = 0.10
 
     # Choose which non-GBM model to plot on the right.
-    # "VG" gives a non-flat implied vol; "MERTON" gives jump-diffusion.
+    # "VG" gives a non-flat implied vol; "MERTON" gives jump-diffusion; "KOUVG" is a composite.
     complex_kind = args.model.upper()
     
     T = 0.25
@@ -353,6 +364,56 @@ def main(argv: list[str] | None = None) -> None:
             f" (factors {np.exp(event.u):.4f}/{np.exp(event.d):.4f}), martingale_norm={event.ensure_martingale}"
         )
         print(f"merton vol for target atm vol {sigma:.4f} is {complex_model.params['vol']:.6f}")
+    elif complex_kind.upper() == "KOUVG":
+      # Split instantaneous variance (per unit time) across components:
+      # target total: sigma^2
+      # Kou: Var/t = vol_kou^2 + lam * E[Y^2] where Y is double-exponential log-jump
+      # VG:  Var/t = sigma_vg^2 + theta^2 * nu
+      half_var = 0.5 * (float(sigma) ** 2)
+
+      EY2 = 2.0 * float(kou_p) * (1.0 / (float(kou_eta1) ** 2)) + 2.0 * (1.0 - float(kou_p)) * (1.0 / (float(kou_eta2) ** 2))
+      kou_jump_var = float(kou_lam) * float(EY2)
+      kou_vol_sq = half_var - kou_jump_var
+      kou_vol = float(np.sqrt(max(1e-12, kou_vol_sq)))
+
+      vg_sigma_sq = half_var - (float(kou_vg_theta) ** 2) * float(kou_vg_nu)
+      vg_sigma = float(np.sqrt(max(1e-12, vg_sigma_sq)))
+
+      complex_model = CompositeLevyCHF(
+        S0=S0,
+        r=r,
+        q=q,
+        divs={},
+        params={
+          "components": [
+            {
+              "type": "kou",
+              "params": {
+                "vol": kou_vol,
+                "lam": float(kou_lam),
+                "p": float(kou_p),
+                "eta1": float(kou_eta1),
+                "eta2": float(kou_eta2),
+              },
+            },
+            {
+              "type": "vg",
+              "params": {
+                "sigma": vg_sigma,
+                "theta": float(kou_vg_theta),
+                "nu": float(kou_vg_nu),
+              },
+            },
+          ]
+        },
+      )
+      complex_title = (
+        f"Kou+VG (50/50 var split)"
+        f"<br>Kou vol={kou_vol:.4f}, lam={kou_lam:.3f}, p={kou_p:.3f}, eta1={kou_eta1:.2f}, eta2={kou_eta2:.2f}"
+        f"<br>VG sigma={vg_sigma:.4f}, theta={kou_vg_theta:.4f}, nu={kou_vg_nu:.4f}"
+        f"<br>event t={event_time:.3f}, p={event.p:.3f}, u={event.u:.4f}, d={event.d:.4f}"
+        f" (factors {np.exp(event.u):.4f}/{np.exp(event.d):.4f}), martingale_norm={event.ensure_martingale}"
+      )
     else:
         raise ValueError(f"Unknown complex_kind: {complex_kind}")
 
@@ -400,11 +461,14 @@ def main(argv: list[str] | None = None) -> None:
 
     out_path = args.out
     if out_path is None:
-      out_path = (
-        "figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html"
-        if complex_kind.upper() == "VG"
-        else "figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html"
-      )
+      if complex_kind.upper() == "VG":
+        out_path = "figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html"
+      elif complex_kind.upper() == "MERTON":
+        out_path = "figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html"
+      elif complex_kind.upper() == "KOUVG":
+        out_path = "figs/event_iv_surfaces_gbm_vs_kouvg_linked_3d.html"
+      else:
+        raise ValueError(f"Unknown complex_kind: {complex_kind}")
     _write_html(out_path=out_path, payload=payload)
     print(f"Wrote: {out_path}")
 

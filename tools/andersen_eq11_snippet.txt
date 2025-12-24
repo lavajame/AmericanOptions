@@ -1,0 +1,260 @@
+ndary
+S∗
+T (t), below which the American put option should be exercised.
+Note: we don’t shift toB(T − t) and τ = T − t notation here, since the
+problem is no longer time-stationary.
+Above the exercise boundary and away from the dividend dates,t h e
+put option priceP(t, S) satisfies the usual Black-Scholes PDE:
+∂P
+∂t + µS ∂P
+∂S + 1
+2σ2S2 ∂2P
+∂S2 = rP, t /∈{ ti}d
+i=1,S > S ∗
+T (t),
+Across each dividend date, the put option does not lose exercise
+value (see below), wherefore we may impose the simple jump-type
+continuity conditionP (ti−,S (ti−)) =P (ti+,S (ti+)) , i.e.
+P (ti−,S )= P (ti+,S (1 − ci)) ,i =1 , 2,...,d .
+American Options – with Dividends – p. 21/36
+
+===== PAGE 22 =====
+Boundary (1)
+To characterize the boundary, we have as beforevalue matchand
+smooth pasting
+P(t, S∗
+T (t)) =K − S∗
+T (t),
+∂P (t, S)
+∂S |S=S∗
+T (t) = −1,t / ∈{ ti}d
+i=1.
+To further characterize the boundary, consider that it can never be
+optimal to exercise the option just prior to a dividend date,wherefore
+Lemma 1. The American put exercise boundaryS∗
+T (t) satisfies
+S∗
+T (ti−)=0 ,i =1 ,...,d , (8)
+and
+S∗
+T (T−)=
+
+
+
+K min
+(
+1, r
+r−µ
+)
+,r > µ ,
+Kr ≤ µ
+(9)
+American Options – with Dividends – p. 22/36
+
+===== PAGE 23 =====
+Boundary (2)
+We can also use carry arguments to prove:
+Lemma 2. For i =1 ,...,d define
+t∗
+i =
+
+
+
+max
+(
+ti + ln(1−ci)
+µ ,t i−1
+)
+,µ > 0,
+ti−1,µ ≤ 0,
+where necessarilyt∗
+i ∈[ti−1,t i).F o rt ∈[ti−1,t i) we then have
+S∗
+T (t) ≤
+
+
+
+K 1−e−r(ti−t)
+1−e(µ−r)(ti−t)(1−ci) ,t ∈(t∗
+i ,t i),
+K, t ∈[ti−1,t ∗
+i ].
+. (10)
+In particular, (8) holds fort ↑ti.
+The upper bound is a very good proxy for the boundary close to
+dividend dates
+American Options – with Dividends – p. 23/36
+
+===== PAGE 24 =====
+Boundary Shape
+Boundary shape for American Put w. 3 Proportional Dividends
+/g882/g1006/g1004
+/g1004
+/g1006/g1004
+/g1008/g1004
+/g1010/g1004
+/g1012/g1004
+/g1005/g1004/g1004
+/g1005/g1006/g1004
+/g1004/g1004 /g856 /g1006 /g1004 /g856 /g1008 /g1004 /g856 /g1010 /g1004 /g856 /g1012/g1005/g1005 /g856 /g1006
+American Options – with Dividends – p. 24/36
+
+===== PAGE 25 =====
+American Put Option Price (1)
+We need an equation for the American put option price, given the
+boundary. Here it is:
+Proposition 1. Let p (t, S) be the timet price of a European put option with
+maturity T and strikeK. For the dividend-paying stockS(t), the American put
+option priceP is given by
+P(t, S)= p(t, S)+ rK
+∫T
+t
+e−r(u−t)E
+(
+1{S(u)<S∗
+T (u)}|S(t)= S
+)
+du
+− (r − µ)
+∫T
+t
+e−r(u−t)Et
+(
+1{S(u)<S∗
+T (u)}S(u)|S(t)= S
+)
+du, (11)
+for allS ≥ S∗
+T (t).
+The result is a generalization of Goetsche and Vellekoep (Math.
+Finance, 2011) to cover the (practically important) caseµ ̸= r.
+American Options – with Dividends – p. 25/36
+
+===== PAGE 26 =====
+American Put Option Price (2)
+Proposition holds for a large class of dividends. For the proportional
+dividend type, we haveexplicitly (with q ≜ r − µ):
+P(t, S)= p(t, S)+ rK
+∫T
+t
+e−r(u−t)Φ( −d−(S/S∗
+T (u); t, u)) du
+− qS
+∫T
+t
+e−q(u−t)G(t, u)Φ( −d+(S/S∗
+T (u); t, u)) du, (12)
+for S ≥ S∗
+T (t).
+Here we have redefined
+d±(z; t, T)= ln z + µ(T − t)+l nG(t, T) ± 1
+2 σ2(T − t)
+σ
+√
+T − t .
+American Options – with Dividends – p. 26/36
+
+===== PAGE 27 =====
+American Put Option Price (3)
+Proof of Proposition is instructional, so we can give a sketch:
+Define H(t)= e−rtP(t, S(t)).W h e nS is below the boundary,
+H(t)= e−rt(K − S(t)) and
+dH(t)= −e−rtdS(t) − re−rt (K − S(t)) dt, S (t) <S ∗
+T (t).
+When S is above boundary,H is a martingale and (by BS equation)
+dH(t)= σe−rtS(t)∂P
+∂S dW(t)
+Right AT the boundary, there would normally (by Tanaka’s rule) be a
+local time contribution todH, but due to smooth pasting, it vanishes.
+And crossing dividend dates add no terms todH.
+Collecting, integrating to findH(T) − H(t) +f o r m i n gt i m et
+expectations pops out the result.
+American Options – with Dividends – p. 27/36
+
+===== PAGE 28 =====
+Boundary Fixed Point Formulation (1)
+By settingS = S∗
+T (t) in (12), we get an integral equation forS∗
+T (t):
+K−S∗
+T (t)= p (t, S∗
+T (t))+rK
+∫T
+t
+e−r(u−t)Φ( −d−(S∗
+T (t)/S∗
+T (u); t, u)) du
+− qS∗
+T (t)
+∫T
+t
+e−q(u−t)G(t, u)Φ( −d+(S∗
+T (t)/S∗
+T (u); t, u)) du.
+We can, after some work, arrange this for a fixed-point iteration
+S∗
+T (t)= K NT (t, S∗
+T )
+DT (t, S∗
+T ) (13)
+where
+NT (t, S∗
+T )= e−r(T−t)Φ( d−(S∗
+T (t)/K; t, T))
++ r
+∫T−
+t
+e−r(u−t)Φ( d−(S∗
+T (t)/S∗
+T (u); t, u)) du
+American Options – with Dividends – p. 28/36
+
+===== PAGE 29 =====
+Boundary Fixed Point Formulation (2)
+..and
+DT (t, S∗
+T )= e−q(T−t)G(t, T)Φ(d+(S∗
+T (t)/K; t, T))
++ q
+∫T−
+t
+e−q(u−t)G(t, u)Φ( d+(S∗
+T (t)/S∗
+T (u); t, u)) du
+−
+∑
+ti∈[t,T)
+e−q(ti−t) (G(t, ti) − G(t, ti−1)) .
+American Options – with Dividends – p. 29/36
+
+===== PAGE 30 =====
+Numerical Algorithm
+The fixed point system can be executed using a variation of the
+algorithm in ALO.
+In particular, given Lemma 2’s “periodic” constraintS∗
+T (ti−)=0 ,
+i =1 ,...,d , it makes sense to break the problem intod sub-problems,
+one per dividend period, and use ALO algorithm backwards to time 0
+from timetd.
+While Chebyshev spacing is still needed for the collocationscheme,
+we generally do not need to be as careful with boundary
+transformations fort<t d.
+With d dividends, the effort of the scheme is (better than)d +1 times
+that of the regular scheme. For single stocks,d is normally 4
+times/year.
+American Options – with Dividends – p. 30/36
+
+===== PAGE 31 =====
+American Call Options (1)
+Unlike the case for smooth dividends, there are no obvious parity
+results to extract American call prices from puts.
+American Calls, in fact, are very different from puts, and there are
+situations where the exercise boundary is completely degenerate,
+except for a few points.
+In this case, the American option price integral changes fromb e i n ga n
+integral in time along the boundary, to being (a convolution)o f
+integrals in asset space.
+For instance, in the case whereµ ≥ r, it is easy to see that the only
+possible exercise dates are atti−, i =1 ,...,d , just before each
+dividend.
+American Options – with Dividends – p. 31/3
