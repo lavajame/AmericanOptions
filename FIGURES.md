@@ -8,9 +8,15 @@ If you just want to refresh everything:
 
 - Run the main diagnostics: `python plot_diagnostics.py`
 - Run COS-vs-FDM profiling: `python tools/profile_cos_vs_fdm_time_complexity.py`
+- Run Lévy skew persistence analysis: `python tools/analyze_skew_persistence.py`
 - Run event IV surface plots:
   - Static: `python tools/plot_event_iv_surfaces.py`
   - Interactive (linked 3D): `python tools/make_linked_event_iv_surfaces.py --model vg` (or `--model merton`)
+
+## Key modeling features
+
+- **Dividend uncertainty**: All uncertain cash dividends are modeled using an inverse Gaussian (IG) process, preserving positivity while allowing intuitive cash-space mean/stdev specification.
+- **CGMY skew persistence**: CGMY's asymmetric tempering (G < M) produces the most persistent skew and smile across maturities, especially on the call wing, making it ideal for mixing short-dated and long-dated calibrations.
 
 ## Static PNG figures
 
@@ -62,13 +68,21 @@ If you just want to refresh everything:
 
   What it shows: forward/parity consistency checks over time in the presence of discrete dividends.
 
-- Dividend uncertainty: COS vs Monte Carlo (with CSV):
+- Dividend uncertainty: CGMY COS vs Monte Carlo (with CSV):
   - Plot: [figs/cgmy_mc_vs_cos_div_uncertainty.png](figs/cgmy_mc_vs_cos_div_uncertainty.png)
   - Data: [figs/cgmy_mc_vs_cos_div_uncertainty.csv](figs/cgmy_mc_vs_cos_div_uncertainty.csv)
 
-  ![GBM MC vs COS under dividend uncertainty](figs/gbm_mc_vs_cos_div_uncertainty.png)
+  ![CGMY MC vs COS under dividend uncertainty](figs/cgmy_mc_vs_cos_div_uncertainty.png)
 
-  What it shows: compares COS pricing against a GBM Monte Carlo cross-check under the repo’s “cash dividend uncertainty” convention.
+  What it shows: compares COS pricing against a CGMY Monte Carlo cross-check under uncertain cash dividends (modeled via inverse Gaussian). Uses equity-like CGMY parameterization (G=2.5, M=8.0, Y=0.7) with negative skew. Dividend scenarios: $2.0 mean with stdev sweep ($0.00, $0.75, $1.50, $3.00). Validates that COS and MC agree under the IG dividend factor model across all uncertainty levels.
+
+- Richardson extrapolation for discrete dividends (with CSV):
+  - Plot: [figs/richardson_vs_manyM_discrete_divs.png](figs/richardson_vs_manyM_discrete_divs.png)
+  - Data: [figs/richardson_vs_manyM_discrete_divs.csv](figs/richardson_vs_manyM_discrete_divs.csv)
+
+  ![Richardson extrapolation discrete dividends](figs/richardson_vs_manyM_discrete_divs.png)
+
+  What it shows: compares Richardson extrapolation convergence against brute-force refinement (many timesteps) for American options with discrete dividends under GBM.
 
 ### COS vs FDM time/accuracy tradeoff (from [tools/profile_cos_vs_fdm_time_complexity.py](tools/profile_cos_vs_fdm_time_complexity.py))
 
@@ -77,6 +91,27 @@ If you just want to refresh everything:
   ![COS vs FDM time complexity](figs/cos_vs_fdm_time_complexity.png)
 
   What it shows: for both European and American cases, compares runtime vs error for COS (sweeping $N$) and FDM (sweeping grid sizes).
+
+### Lévy model skew persistence and calibration (from [tools/analyze_skew_persistence.py](tools/analyze_skew_persistence.py))
+
+- Skew and curvature persistence after hybrid calibration:
+  - Plot: [figs/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png](figs/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png)
+  - Data: [figs/skew_persistence_by_model_calib_cumulants_from_avgshape_T025_hybrid.csv](figs/skew_persistence_by_model_calib_cumulants_from_avgshape_T025_hybrid.csv)
+
+  ![Skew persistence hybrid calibration](figs/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png)
+
+  What it shows: after matching VG/Merton/Kou/CGMY models at T=0.25 using a hybrid objective (cumulants + IV-slice penalty), compares how ATM skew and curvature evolve across maturities (0.05Y to 1Y). VG shows the sharpest/most extreme smile decay; Kou and Merton are similar and moderate; CGMY sits in between but with the most persistent smile across maturities, especially on the call wing.
+
+- Calibrated IV slices (z-normalized moneyness):
+  - Plot: [figs/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png](figs/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png)
+
+  ![IV slices z-normalized](figs/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png)
+
+  What it shows: implied vol slices at T=0.05, T=0.25, T=1.0 for the hybrid-calibrated models, plotted vs normalized moneyness z = ln(K/F)/(σ√T). Shows how each model's smile shape evolves with maturity after ensuring fair starting conditions at T=0.25.
+
+- Calibration parameter outputs:
+  - Hybrid calibration: [figs/calib_params_cumulants_from_avgshape_T025_hybrid.json](figs/calib_params_cumulants_from_avgshape_T025_hybrid.json)
+  - Other variants available in `figs/calib_params_*.json`
 
 ### Event implied-vol surfaces (static)
 
