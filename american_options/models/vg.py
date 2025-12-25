@@ -7,7 +7,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 
 from ..base_cf import CharacteristicFunction
-from ..dividends import _dividend_adjustment
+from ..dividends import _dividend_adjustment, dividend_char_factor
 
 class VGCHF(CharacteristicFunction):
     """Variance‑Gamma (Madan‑Carr‑Chang) model."""
@@ -17,8 +17,6 @@ class VGCHF(CharacteristicFunction):
         theta = float(self.params["theta"])
         sigma = float(self.params["sigma"])
         nu = float(self.params["nu"])
-        exp_divs, div_params = _dividend_adjustment(T, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         # characteristic function of VG increments under risk-neutral drift choice
         # MGF factor: (1 - i theta nu u + 0.5 sigma^2 nu u^2)^(-T/nu)
@@ -30,13 +28,10 @@ class VGCHF(CharacteristicFunction):
             # numerical safety: shift a little (shouldn't normally happen for sensible params)
             denom_at_1 = max(1e-12, denom_at_1)
         omega = (1.0 / nu) * np.log(denom_at_1)
-        mu = np.log(self.S0) + (self.r - self.q + omega) * T + exp_divs
+        mu = np.log(self.S0) + (self.r - self.q + omega) * T
         phi_base = (1.0 - 1j * theta * nu * u + 0.5 * (sigma ** 2) * (nu) * (u ** 2)) ** (-T / nu)
         phi = np.exp(1j * u * mu) * phi_base
-        # Add dividend uncertainty as an independent Gaussian log-factor.
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
-        return phi
+        return phi * dividend_char_factor(u, T, self.divs)
 
     def _var2(self, T: float) -> float:
         theta = float(self.params["theta"])
@@ -51,20 +46,16 @@ class VGCHF(CharacteristicFunction):
         theta = float(self.params["theta"])
         sigma = float(self.params["sigma"])
         nu = float(self.params["nu"])
-        exp_divs, div_params = _dividend_adjustment(dt, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         denom_at_1 = 1.0 - theta * nu - 0.5 * sigma * sigma * nu
         if denom_at_1 <= 0:
             denom_at_1 = max(1e-12, denom_at_1)
         omega = (1.0 / nu) * np.log(denom_at_1)
-        mu_term = (self.r - self.q + omega) * dt + exp_divs
+        mu_term = (self.r - self.q + omega) * dt
 
         inside = 1.0 - 1j * theta * nu * u + 0.5 * (sigma ** 2) * (nu) * (u ** 2)
         phi = np.exp(1j * u * mu_term) * (inside ** (-dt / nu))
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
-        return phi
+        return phi * dividend_char_factor(u, dt, self.divs)
 
     def increment_char_and_grad(
         self,
@@ -87,20 +78,17 @@ class VGCHF(CharacteristicFunction):
         theta = float(self.params["theta"])
         sigma = float(self.params["sigma"])
         nu = float(self.params["nu"])
-        exp_divs, div_params = _dividend_adjustment(dt, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         denom_at_1 = 1.0 - theta * nu - 0.5 * sigma * sigma * nu
         if denom_at_1 <= 0:
             denom_at_1 = max(1e-12, denom_at_1)
         omega = (1.0 / nu) * np.log(denom_at_1)
-        mu_term = (self.r - self.q + omega) * dt + exp_divs
+        mu_term = (self.r - self.q + omega) * dt
 
         inside = 1.0 - 1j * theta * nu * u + 0.5 * (sigma ** 2) * nu * (u ** 2)
         log_inside = np.log(inside)
-        phi = np.exp(1j * u * mu_term) * np.exp((-dt / nu) * log_inside)
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
+        phi_base = np.exp(1j * u * mu_term) * np.exp((-dt / nu) * log_inside)
+        phi = phi_base * dividend_char_factor(u, dt, self.divs)
 
         grad: dict[str, np.ndarray] = {}
 
@@ -142,6 +130,7 @@ class VGCHF(CharacteristicFunction):
         if denom_at_1 <= 0:
             denom_at_1 = max(1e-12, denom_at_1)
         omega = (1.0 / nu) * np.log(denom_at_1)
+        # Approximate dividend mean shift via Σ ln(1-m).
         mu = np.log(self.S0) + (self.r - self.q + omega) * T + exp_divs
 
         k1 = theta * T

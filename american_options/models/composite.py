@@ -7,7 +7,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 
 from ..base_cf import CharacteristicFunction
-from ..dividends import _dividend_adjustment
+from ..dividends import _dividend_adjustment, dividend_char_factor
 
 class CompositeLevyCHF(CharacteristicFunction):
     """Composite exponential-Lévy model built from independent components.
@@ -245,11 +245,8 @@ class CompositeLevyCHF(CharacteristicFunction):
 
         u = np.asarray(u, dtype=complex)
         dt = float(dt)
-        sum_log, div_params = _dividend_adjustment(dt, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
-
         # Increment CF excludes ln(S0).
-        mu_inc = (self.r - self.q) * dt + sum_log
+        mu_inc = (self.r - self.q) * dt
 
         name_map = self._component_param_name_map()
         if params is None:
@@ -411,9 +408,7 @@ class CompositeLevyCHF(CharacteristicFunction):
                 raise RuntimeError(f"Unhandled component type: {ctype}")
 
         exponent_inc = 1j * u * mu_inc + (psi_u - 1j * u * psi_mi) * dt
-        phi_inc = np.exp(exponent_inc)
-        if var_div > 0.0:
-            phi_inc *= np.exp(-0.5 * (u ** 2) * var_div)
+        phi_inc = np.exp(exponent_inc) * dividend_char_factor(u, dt, self.divs)
 
         grad: dict[str, np.ndarray] = {}
         if params_eff:
@@ -425,18 +420,14 @@ class CompositeLevyCHF(CharacteristicFunction):
 
     def char_func(self, u: np.ndarray, T: float) -> np.ndarray:
         u = np.asarray(u, dtype=complex)
-        sum_log, div_params = _dividend_adjustment(T, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         psi_vals = self._psi_unit(u)
         psi_minus_i = self._psi_unit(-1j)
 
-        mu_base = np.log(self.S0) + (self.r - self.q) * T + sum_log
+        mu_base = np.log(self.S0) + (self.r - self.q) * T
         exponent = 1j * u * mu_base + (psi_vals - 1j * u * psi_minus_i) * T
         phi = np.exp(exponent)
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
-        return phi
+        return phi * dividend_char_factor(u, T, self.divs)
 
     def cumulants(self, T: float) -> Tuple[float, float, float]:
         from scipy.special import gamma as sp_gamma

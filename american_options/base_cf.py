@@ -13,7 +13,7 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 
-from .dividends import cash_divs_to_proportional_divs, _dividend_adjustment, _dividend_adjustment_window
+from .dividends import cash_divs_to_proportional_divs, dividend_char_factor, dividend_char_factor_window
 from .events import DiscreteEventJump
 
 class CharacteristicFunction:
@@ -57,11 +57,11 @@ class CharacteristicFunction:
         Default implementation supports proportional dividends scheduled in absolute time
         by reweighting the base `increment_char(u, dt)`.
 
-        Notes
-        -----
-        - For models without discrete dividends, this reduces to time-homogeneous increments.
-        - For dividend uncertainty (std_log > 0), this correction assumes the dividend factor
-          enters as an independent Gaussian log-factor, matching `_dividend_adjustment`.
+                Notes
+                -----
+                - For models without discrete dividends, this reduces to time-homogeneous increments.
+                - With dividends specified in absolute time, `increment_char(u, dt)` treats dividend
+                    times as if they were relative to 0; this method corrects to the true (t0, t1] window.
         """
         dt = float(t1) - float(t0)
         if dt <= 0.0:
@@ -76,17 +76,10 @@ class CharacteristicFunction:
 
         # Base increment_char(u, dt) includes dividends with absolute times <= dt.
         # For a true interval [t0, t1], include only dividends with absolute times in (t0, t1].
-        old_sum_log, old_params = _dividend_adjustment(dt, self.divs)
-        old_var = float(np.sum(old_params[:, 1])) if old_params.size else 0.0
-        new_sum_log, new_params = _dividend_adjustment_window(t0, t1, self.divs)
-        new_var = float(np.sum(new_params[:, 1])) if new_params.size else 0.0
-
-        d_sum = float(new_sum_log - old_sum_log)
-        d_var = float(new_var - old_var)
-        if d_sum == 0.0 and d_var == 0.0:
-            return phi
-
-        corr = np.exp(1j * u * d_sum - 0.5 * (u ** 2) * d_var)
+        old = dividend_char_factor(u, dt, self.divs)
+        new = dividend_char_factor_window(u, t0, t1, self.divs)
+        # Avoid 0/0 issues (shouldn't happen for valid params, but guard anyway).
+        corr = np.where(np.abs(old) > 0.0, new / old, 1.0 + 0j)
         return phi * corr
 
     # ----------------------------------------------------------------------- #

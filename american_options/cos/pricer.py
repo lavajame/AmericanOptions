@@ -240,15 +240,15 @@ class COSPricer:
                 )
             )
 
-        # Dividend prefix sums for parity conversions (avoid repeated _dividend_adjustment)
-        # sum_log_total is the deterministic log-mean component (includes -0.5*var terms).
+        # Dividend prefix sums for parity conversions.
+        # Under the project convention, mean dividend factor is (1-m); uncertainty is handled
+        # in the CF, so these sums track only Σ ln(1-m).
         sum_log_total = 0.0
         div_log_terms: list[tuple[float, float]] = []
         for t, (m, std) in sorted(self.model.divs.items(), key=lambda kv: float(kv[0])):
             t = float(t)
             if 0.0 < t <= float(T):
-                var = float(std) ** 2
-                term = float(np.log(max(1.0 - float(m), 1e-12)) - 0.5 * var)
+                term = float(np.log(max(1.0 - float(m), 1e-12)))
                 div_log_terms.append((t, term))
                 sum_log_total += term
 
@@ -256,9 +256,6 @@ class COSPricer:
         sum_log_up_to: Dict[float, float] = {}
         running = 0.0
         j = 0
-        for _dt, t_current, *_ in reversed(step_info[::-1]):
-            # This loop order isn't critical; we just want deterministic keys.
-            pass
         # Use sorted unique times from t_steps (excluding T) for stable lookup.
         t_sorted = sorted(set(float(t) for t in t_steps[:-1]))
         for t_cur in t_sorted:

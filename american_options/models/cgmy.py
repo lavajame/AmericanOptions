@@ -9,7 +9,7 @@ import numpy as np
 from scipy.special import gamma as sp_gamma
 
 from ..base_cf import CharacteristicFunction
-from ..dividends import _dividend_adjustment
+from ..dividends import _dividend_adjustment, dividend_char_factor
 
 class CGMYCHF(CharacteristicFunction):
     """CGMY (Carr–Geman–Madan–Yor) class of tempered stable processes.
@@ -26,9 +26,7 @@ class CGMYCHF(CharacteristicFunction):
         M = float(self.params.get("M", 5.0))
         Y = float(self.params.get("Y", 0.5))
 
-        # dividend adjustments (sum of log(1-m)) and variance from discrete divs
-        sum_log, div_params = _dividend_adjustment(T, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
+        # Dividend effects are applied as a separate multiplicative CF factor.
 
         # characteristic exponent (per unit time) for CGMY:
         # psi(u) = C * Gamma(-Y) * [ (M - i u)^Y - M^Y + (G + i u)^Y - G^Y ]
@@ -66,21 +64,18 @@ class CGMYCHF(CharacteristicFunction):
         psi_vals = psi_unit(u)
         psi_minus_i = psi_unit(-1j)
 
-        # choose mu so that E[e^{X_T}] = exp((r-q)T + sum_log)
-        # mu = ln S0 + (r-q)T + sum_log - psi(-i)T
+        # choose mu so that E[e^{X_T}] = exp((r-q)T)
+        # mu = ln S0 + (r-q)T - psi(-i)T
         # For large M, G, psi(-i) should approach 0.5 * sigma^2.
         # Let's check the exponent: 1j * u * mu + psi(u) * T
         # = 1j * u * (ln S0 + (r-q)T + sum_log - psi(-i)T) + psi(u) * T
         # = 1j * u * (ln S0 + (r-q)T + sum_log) + (psi(u) - 1j * u * psi(-i)) * T
         
-        mu_base = np.log(self.S0) + (self.r - self.q) * T + sum_log
+        mu_base = np.log(self.S0) + (self.r - self.q) * T
         exponent = 1j * u * mu_base + (psi_vals - 1j * u * psi_minus_i) * T
         
         phi = np.exp(exponent)
-        # Add dividend uncertainty as an independent Gaussian log-factor.
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
-        return phi
+        return phi * dividend_char_factor(u, T, self.divs)
 
     def _var2(self, T: float) -> float:
         # Var[X_T] = c2
@@ -92,7 +87,8 @@ class CGMYCHF(CharacteristicFunction):
         G = float(self.params.get("G", 5.0))
         M = float(self.params.get("M", 5.0))
         Y = float(self.params.get("Y", 0.5))
-        sum_log, _ = _dividend_adjustment(T, self.divs)
+        sum_log, div_params = _dividend_adjustment(T, self.divs)
+        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         # c_n = C * T * Gamma(n - Y) * (M^(Y-n) + G^(Y-n))
         # For c1, we must include the risk-neutral drift correction:
@@ -116,8 +112,8 @@ class CGMYCHF(CharacteristicFunction):
         c1_jump = C * T * sp_gamma(1.0 - Y) * (stable_pow(M, Y - 1.0) - stable_pow(G, Y - 1.0))
         c1 = mu + c1_jump
         
-        # c2 = C * T * Gamma(2-Y) * (M^(Y-2) + G^(Y-2))
-        c2 = C * T * sp_gamma(2.0 - Y) * (stable_pow(M, Y - 2.0) + stable_pow(G, Y - 2.0))
+        # c2 = C * T * Gamma(2-Y) * (M^(Y-2) + G^(Y-2)) + dividend variance proxy
+        c2 = C * T * sp_gamma(2.0 - Y) * (stable_pow(M, Y - 2.0) + stable_pow(G, Y - 2.0)) + var_div
         
         # c4 = C * T * Gamma(4-Y) * (M^(Y-4) + G^(Y-4))
         c4 = C * T * sp_gamma(4.0 - Y) * (stable_pow(M, Y - 4.0) + stable_pow(G, Y - 4.0))

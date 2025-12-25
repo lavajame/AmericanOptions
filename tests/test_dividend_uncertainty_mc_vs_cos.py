@@ -1,6 +1,8 @@
 import numpy as np
 
 from american_options import GBMCHF
+from american_options.dividends import _ig_laplace_log
+from american_options.dividends import _ig_scale_from_mean_std
 from american_options.engine import cash_divs_to_proportional_divs
 from american_options.engine import COSPricer
 
@@ -39,9 +41,20 @@ def _mc_gbm_euro_uncertain_divs(
 
         if idx < len(times) - 1:
             _, m, std = div_items[idx - 1]
-            Zd = rng.standard_normal(S.shape[0])
-            lnD = np.log(max(1.0 - m, 1e-12)) - 0.5 * (std ** 2) + std * Zd
-            S *= np.exp(lnD)
+            ln1m = float(np.log(max(1.0 - float(m), 1e-12)))
+
+            # IG-based dividend uncertainty (must match `dividend_char_factor`).
+            # X ~ IG(mean=m, std=std), J = m - X, lnD = ln(1-m) + J - log(E[e^J]).
+            if float(std) <= 0.0 or float(m) <= 0.0:
+                S *= np.exp(ln1m)
+            else:
+                mu = float(m)
+                lam = float(_ig_scale_from_mean_std(mu, float(std)))
+                log_LT_1 = _ig_laplace_log(s=1.0 + 0j, mean=mu, scale=lam)
+                log_EexpJ = float(mu + np.real(log_LT_1))
+                const = float(ln1m + mu - log_EexpJ)
+                X = rng.wald(mu, lam, size=S.shape[0])
+                S *= np.exp(const - X)
 
     if is_call:
         payoff = np.maximum(S - float(K), 0.0)

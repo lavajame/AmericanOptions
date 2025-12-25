@@ -1,7 +1,11 @@
 """Dividend utilities.
 
 Project-wide convention: discrete dividends are provided as cash amounts (mean, std)
-in spot currency. Internally we convert to proportional multiplicative factors.
+in spot currency.
+
+Uncertain dividends are handled via an Inverse Gaussian (IG) *process* applied as an
+independent log-factor on the proportional dividend drop. This preserves positivity
+of the multiplicative factor while keeping inputs intuitive in cash space.
 """
 
 from __future__ import annotations
@@ -9,6 +13,109 @@ from __future__ import annotations
 from typing import Dict, Tuple
 
 import numpy as np
+
+
+def _ig_scale_from_mean_std(mean: float, std: float) -> float:
+    """Return the IG scale (lambda) from mean and standard deviation.
+
+    NumPy's `Generator.wald(mean, scale)` uses the Inverse Gaussian parameterization:
+      E[X] = mean,  Var[X] = mean^3 / scale.
+    """
+    mean = float(mean)
+    std = float(std)
+    if mean <= 0.0:
+        raise ValueError("Inverse Gaussian requires mean > 0")
+    if std <= 0.0:
+        raise ValueError("Inverse Gaussian scale is undefined for std<=0")
+    return (mean**3) / (std**2)
+
+
+def _ig_laplace_log(*, s: complex | np.ndarray, mean: float, scale: float) -> np.ndarray:
+    """Log Laplace transform of IG: log E[exp(-s X)].
+
+    For X ~ IG(mean=mu, scale=lambda):
+      E[e^{-sX}] = exp((lambda/mu) * (1 - sqrt(1 + 2*mu^2*s/lambda)))
+
+    Works for complex s (via complex sqrt).
+    """
+    mu = float(mean)
+    lam = float(scale)
+    s = np.asarray(s, dtype=complex)
+    return (lam / mu) * (1.0 - np.sqrt(1.0 + (2.0 * (mu**2) * s) / lam))
+
+
+def dividend_char_factor(u: np.ndarray, T: float, divs_prop: Dict[float, Tuple[float, float]]) -> np.ndarray:
+    """Characteristic multiplier from proportional dividends up to time T.
+
+    Internal representation:
+      divs_prop[t] = (m_mean, rel_std)
+
+    Deterministic mean drop is handled by `m_mean` via the factor (1-m_mean).
+    Uncertainty is modeled as a *positive* log-factor driven by an inverse Gaussian
+    centered at the relative cash mean.
+
+    For each dividend event we define a random log factor:
+      ln D_factor = ln(1-m) + J - log(E[e^J])
+    where J := -(X - m), X ~ IG(mean=m, std=rel_std).
+    This normalization enforces E[D_factor] = (1-m).
+    """
+    u = np.asarray(u, dtype=complex)
+    T = float(T)
+    if not divs_prop:
+        return np.ones_like(u)
+
+    out = np.ones_like(u)
+    for t, (m, rel_std) in divs_prop.items():
+        tt = float(t)
+        if not (0.0 < tt <= T):
+            continue
+        m = float(m)
+        rel_std = float(rel_std)
+        if m <= 0.0:
+            continue
+        ln1m = float(np.log(max(1.0 - m, 1e-12)))
+        if rel_std <= 0.0:
+            out *= np.exp(1j * u * ln1m)
+            continue
+
+        mu = m
+        lam = _ig_scale_from_mean_std(mu, rel_std)
+
+        # J = -(X - mu) = mu - X. Need:
+        #   E[e^J] = E[e^{mu - X}] = exp(mu) * E[e^{-X}]  (Laplace at s=1).
+        log_LT_1 = _ig_laplace_log(s=1.0 + 0j, mean=mu, scale=lam)
+        log_EexpJ = float(mu + np.real(log_LT_1))
+
+        # phi_J(u) = E[e^{i u J}] = exp(i u mu) * E[e^{-i u X}]  (Laplace at s=i u).
+        log_LT_iu = _ig_laplace_log(s=1j * u, mean=mu, scale=lam)
+        phi_J = np.exp(1j * u * mu + log_LT_iu)
+
+        out *= np.exp(1j * u * (ln1m - log_EexpJ)) * phi_J
+
+    return out
+
+
+def dividend_char_factor_window(
+    u: np.ndarray,
+    t0: float,
+    t1: float,
+    divs_prop: Dict[float, Tuple[float, float]],
+) -> np.ndarray:
+    """Dividend characteristic multiplier for dividends in (t0, t1]."""
+    u = np.asarray(u, dtype=complex)
+    t0 = float(t0)
+    t1 = float(t1)
+    if not divs_prop or t1 <= t0:
+        return np.ones_like(u)
+    out = np.ones_like(u)
+    for t, (m, rel_std) in divs_prop.items():
+        tt = float(t)
+        if not (t0 < tt <= t1):
+            continue
+        # Reuse the up-to-T helper by constructing a tiny dict.
+        out *= dividend_char_factor(u, tt, {tt: (m, rel_std)})
+    return out
+
 
 def cash_divs_to_proportional_divs(
     S0: float,
@@ -23,17 +130,19 @@ def cash_divs_to_proportional_divs(
     where D_* are in *spot currency* paid at ex-div time t.
 
     Internal convention used by COS/LSMC/FDM code paths:
-        divs_prop[t] = (m_mean, std_log)
-    with multiplicative factor applied at ex-div:
-        ln D_factor = ln(1-m_mean) - 0.5*std_log^2 + std_log * Z
-    so E[D_factor] = (1-m_mean).
+        divs_prop[t] = (m_mean, rel_std)
+    where:
+        m_mean  ~= D_mean / E[S_{t-}]   (dimensionless mean proportional drop)
+        rel_std ~= D_std  / E[S_{t-}]   (dimensionless cash stdev)
+
+    Pricing engines treat the dividend as an independent *multiplicative* log-factor
+    driven by an inverse Gaussian (see :func:`dividend_char_factor`).
 
     We approximate a cash dividend as a proportional drop relative to the *expected* pre-div forward:
         m_mean ≈ D_mean / E[S_{t-}]
-        Var[D_factor] ≈ (D_std / E[S_{t-}])^2
-    and match this variance by choosing std_log via the lognormal moment relation.
+        D_std / E[S_{t-}]
 
-    Note: this is an approximation (cash dividends are additive in reality).
+    Note: this is still an approximation (cash dividends are additive in reality).
     """
     if not divs_cash:
         return {}
@@ -60,44 +169,32 @@ def cash_divs_to_proportional_divs(
         if m_mean < 0.0:
             raise ValueError("Cash dividend mean cannot imply negative proportional drop")
 
-        one_minus_m = max(1.0 - m_mean, 1e-12)
         rel_std = float(D_std) / expected_pre
 
-        if rel_std <= 0.0:
-            std_log = 0.0
-        else:
-            # For X ~ LogNormal with mean = mu_x and log-std = s:
-            # Var[X] = (exp(s^2) - 1) * mu_x^2
-            # Here mu_x := E[D_factor] = (1-m_mean) and we want Var[D_factor] ≈ rel_std^2.
-            ratio = (rel_std * rel_std) / (one_minus_m * one_minus_m)
-            std_log = float(np.sqrt(np.log(1.0 + max(ratio, 0.0))))
-
-        divs_prop[t] = (m_mean, std_log)
-        mean_factor *= one_minus_m
+        divs_prop[t] = (m_mean, rel_std)
+        mean_factor *= max(1.0 - m_mean, 1e-12)
 
     return divs_prop
 
+
 def _dividend_adjustment(T: float, divs: Dict[float, Tuple[float, float]]) -> Tuple[float, np.ndarray]:
     """
-        Return the cumulative log product adjustment and an array of (mean, var) pairs.
+        Return a deterministic log-mean term and an array of (mean, var) pairs.
 
-        Internal dividend convention (proportional lognormal factor):
-        - Each dividend event at time t has mean proportional drop `m` and a log-factor uncertainty `std_log`.
-        - We model the dividend multiplicative factor as:
-                ln D = ln(1-m) - 0.5 * std^2 + std * Z,  Z ~ N(0,1)
-            so that E[D] = (1-m) while Var[ln D] = std^2.
+        This helper remains for backward-compat with older code paths that expect
+        a "sum_log" plus a variance proxy.
 
-        We return:
-        - sum_log = Σ (ln(1-m) - 0.5*std^2) for t<=T
-        - params = [(m, std^2), ...] for t<=T
+        Under the IG dividend uncertainty convention, we return:
+        - sum_log = Σ ln(1-m) for t<=T
+        - params = [(m, rel_std^2), ...] for t<=T
     """
     sum_log = 0.0
     params = []
     for t, (m, std) in divs.items():
-        if t <= T:
-                        var = float(std) ** 2
-                        sum_log += np.log(max(1.0 - m, 1e-12)) - 0.5 * var
-                        params.append((m, var))
+        if float(t) <= float(T):
+            var = float(std) ** 2
+            sum_log += float(np.log(max(1.0 - float(m), 1e-12)))
+            params.append((float(m), var))
     return sum_log, np.array(params)
 
 
@@ -119,7 +216,7 @@ def _dividend_adjustment_window(t0: float, t1: float, divs: Dict[float, Tuple[fl
         tt = float(t)
         if t0 < tt <= t1:
             var = float(std) ** 2
-            sum_log += np.log(max(1.0 - float(m), 1e-12)) - 0.5 * var
+            sum_log += float(np.log(max(1.0 - float(m), 1e-12)))
             params.append((float(m), var))
     return sum_log, np.array(params, dtype=float)
 
@@ -127,11 +224,12 @@ def _dividend_adjustment_window(t0: float, t1: float, divs: Dict[float, Tuple[fl
 def _forward_price_from_prop_divs(S0: float, r: float, q: float, T: float,
                                  divs_prop: Dict[float, Tuple[float, float]]) -> float:
     """Internal forward using internal proportional dividends."""
-    sum_log, div_params = _dividend_adjustment(T, divs_prop)
-    var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
-    # E[S_T] = S0 * exp((r-q)T) * Π E[D_factor]. With our convention E[D_factor]=(1-m),
-    # which equals exp(sum_log + 0.5*var_div) since sum_log includes -0.5*var_div.
-    return S0 * np.exp((r - q) * T + sum_log + 0.5 * var_div)
+    # E[S_T] = S0 * exp((r-q)T) * Π E[D_factor]. By construction E[D_factor] = (1-m).
+    prod = 1.0
+    for t, (m, _std) in divs_prop.items():
+        if 0.0 < float(t) <= float(T):
+            prod *= max(1.0 - float(m), 1e-12)
+    return float(S0) * float(np.exp((r - q) * float(T))) * float(prod)
 
 
 def forward_price(S0: float, r: float, q: float, T: float,

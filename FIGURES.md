@@ -63,8 +63,8 @@ If you just want to refresh everything:
   What it shows: forward/parity consistency checks over time in the presence of discrete dividends.
 
 - Dividend uncertainty: COS vs Monte Carlo (with CSV):
-  - Plot: [figs/gbm_mc_vs_cos_div_uncertainty.png](figs/gbm_mc_vs_cos_div_uncertainty.png)
-  - Data: [figs/gbm_mc_vs_cos_div_uncertainty.csv](figs/gbm_mc_vs_cos_div_uncertainty.csv)
+  - Plot: [figs/cgmy_mc_vs_cos_div_uncertainty.png](figs/cgmy_mc_vs_cos_div_uncertainty.png)
+  - Data: [figs/cgmy_mc_vs_cos_div_uncertainty.csv](figs/cgmy_mc_vs_cos_div_uncertainty.csv)
 
   ![GBM MC vs COS under dividend uncertainty](figs/gbm_mc_vs_cos_div_uncertainty.png)
 

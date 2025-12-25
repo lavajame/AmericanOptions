@@ -7,7 +7,7 @@ from typing import Any, Dict, Tuple
 import numpy as np
 
 from ..base_cf import CharacteristicFunction
-from ..dividends import _dividend_adjustment
+from ..dividends import _dividend_adjustment, dividend_char_factor
 
 class KouCHF(CharacteristicFunction):
     """Kou double‑exponential jump‑diffusion."""
@@ -19,8 +19,6 @@ class KouCHF(CharacteristicFunction):
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
         eta2 = float(self.params.get("eta2", 5.0))
-        exp_divs, div_params = _dividend_adjustment(T, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         # Characteristic of jump Y (additive log-jump) E[e^{i u Y}]:
         # For double-exponential on Y:
@@ -28,14 +26,9 @@ class KouCHF(CharacteristicFunction):
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1 - p) * (eta2 / (eta2 + 1j * u))
         # E[e^{Y}] for compensation (kappa)
         kappa = p * (eta1 / (eta1 - 1.0)) + (1 - p) * (eta2 / (eta2 + 1.0)) - 1.0
-        mu = np.log(self.S0) + (self.r - self.q) * T + exp_divs - lam * kappa * T - 0.5 * (vol ** 2) * T
-        var_jumps = lam * T * (p * 2.0 / (eta1 ** 2) + (1 - p) * 2.0 / (eta2 ** 2))
-        var = (vol ** 2) * T + var_jumps + var_div
+        mu = np.log(self.S0) + (self.r - self.q) * T - lam * kappa * T - 0.5 * (vol ** 2) * T
         phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * (vol ** 2) * T + lam * T * (phi_jump - 1.0))
-        # Add dividend uncertainty as an independent Gaussian log-factor.
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
-        return phi
+        return phi * dividend_char_factor(u, T, self.divs)
 
     def increment_char(self, u: np.ndarray, dt: float) -> np.ndarray:
         """Characteristic of log-return increment over dt."""
@@ -46,17 +39,13 @@ class KouCHF(CharacteristicFunction):
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
         eta2 = float(self.params.get("eta2", 5.0))
-        sum_log, div_params = _dividend_adjustment(dt, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1.0 - p) * (eta2 / (eta2 + 1j * u))
         kappa = p * (eta1 / (eta1 - 1.0)) + (1.0 - p) * (eta2 / (eta2 + 1.0)) - 1.0
-        mu_term = (self.r - self.q) * dt + sum_log - lam * kappa * dt - 0.5 * (vol ** 2) * dt
+        mu_term = (self.r - self.q) * dt - lam * kappa * dt - 0.5 * (vol ** 2) * dt
         exponent = 1j * u * mu_term - 0.5 * (u ** 2) * (vol ** 2) * dt + lam * dt * (phi_jump - 1.0)
         phi = np.exp(exponent)
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
-        return phi
+        return phi * dividend_char_factor(u, dt, self.divs)
 
     def increment_char_and_grad(
         self,
@@ -81,16 +70,13 @@ class KouCHF(CharacteristicFunction):
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
         eta2 = float(self.params.get("eta2", 5.0))
-        sum_log, div_params = _dividend_adjustment(dt, self.divs)
-        var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
 
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1.0 - p) * (eta2 / (eta2 + 1j * u))
         kappa = p * (eta1 / (eta1 - 1.0)) + (1.0 - p) * (eta2 / (eta2 + 1.0)) - 1.0
-        mu_term = (self.r - self.q) * dt + sum_log - lam * kappa * dt - 0.5 * (vol ** 2) * dt
+        mu_term = (self.r - self.q) * dt - lam * kappa * dt - 0.5 * (vol ** 2) * dt
         exponent = 1j * u * mu_term - 0.5 * (u ** 2) * (vol ** 2) * dt + lam * dt * (phi_jump - 1.0)
-        phi = np.exp(exponent)
-        if var_div > 0.0:
-            phi *= np.exp(-0.5 * (u ** 2) * var_div)
+        phi_base = np.exp(exponent)
+        phi = phi_base * dividend_char_factor(u, dt, self.divs)
 
         grad: dict[str, np.ndarray] = {}
 

@@ -49,6 +49,11 @@ def _get_divs(default_divs: dict) -> dict:
     """Return the global override if present, else the provided default."""
     return DIVS_OVERRIDE if DIVS_OVERRIDE is not None else default_divs
 from american_options.engine import COSPricer, forward_price
+from american_options.dividends import _ig_laplace_log, _ig_scale_from_mean_std
+
+from scipy.special import gammainc as sp_gammainc
+from scipy.special import gammaincc as sp_gammaincc
+from scipy.special import gamma as sp_gamma
 
 
 def bs_call(S, K, r, q, vol, T):
@@ -671,12 +676,479 @@ def gbm_mc_terminal_spots_with_uncertain_prop_divs(
 
         if idx < len(times) - 1:
             _, m, std = div_items[idx - 1]
-            if m != 0.0 or std != 0.0:
-                Zd = rng.standard_normal(S.shape[0])
-                lnD = np.log(max(1.0 - m, 1e-12)) - 0.5 * (std ** 2) + std * Zd
-                S *= np.exp(lnD)
+            ln1m = float(np.log(max(1.0 - float(m), 1e-12)))
+
+            # IG-based dividend uncertainty (must match `dividend_char_factor`).
+            # X ~ IG(mean=m, std=std), J = m - X, lnD = ln(1-m) + J - log(E[e^J]).
+            if float(std) <= 0.0 or float(m) <= 0.0:
+                if float(m) != 0.0:
+                    S *= np.exp(ln1m)
+            else:
+                mu = float(m)
+                lam = float(_ig_scale_from_mean_std(mu, float(std)))
+                log_LT_1 = _ig_laplace_log(s=1.0 + 0j, mean=mu, scale=lam)
+                log_EexpJ = float(mu + np.real(log_LT_1))
+                const = float(ln1m + mu - log_EexpJ)
+                X = rng.wald(mu, lam, size=S.shape[0])
+                S *= np.exp(const - X)
 
     return S
+
+
+def _lower_incomplete_gamma(s: float, z: float) -> float:
+    return float(sp_gamma(s) * sp_gammainc(s, z))
+
+
+def _upper_incomplete_gamma(s: float, z: float) -> float:
+    """Upper incomplete gamma Γ(s, z) for real s, z>=0.
+
+    SciPy's `gammaincc(a, z)` is only defined for a>0 (returns NaN for a<=0).
+    For negative s we use the recurrence:
+        Γ(s+1, z) = s Γ(s, z) + z^s e^{-z}
+    rearranged to:
+        Γ(s, z) = (Γ(s+1, z) - z^s e^{-z}) / s
+    and shift upward until the shape is positive.
+    """
+    s = float(s)
+    z = float(z)
+    if z < 0.0:
+        raise ValueError("Upper incomplete gamma requires z>=0")
+    if s > 0.0:
+        return float(sp_gamma(s) * sp_gammaincc(s, z))
+
+    # Shift s upward to a positive value, then recurse back down.
+    n = int(np.floor(-s)) + 1  # smallest n such that s+n > 0
+    s_pos = s + n
+    val = float(sp_gamma(s_pos) * sp_gammaincc(s_pos, z))
+    exp_mz = float(np.exp(-z))
+    s_curr = s_pos
+    for _ in range(n):
+        s_next = s_curr - 1.0
+        # Γ(s_next, z) = (Γ(s_next+1, z) - z^{s_next} e^{-z}) / s_next
+        val = float((val - (z ** s_next) * exp_mz) / s_next)
+        s_curr = s_next
+    return float(val)
+
+
+def _cgmy_psi_minus_i(*, C: float, G: float, M: float, Y: float) -> float:
+    """Return psi(-i) for the CGMY exponent used in `CGMYCHF`.
+
+    This is the term used to enforce the martingale condition for exp(X_t).
+    """
+    gamma_m = float(sp_gamma(-float(Y)))
+    term_m = float((float(M) ** float(Y)) * np.expm1(float(Y) * np.log1p(-1.0 / float(M))))
+    term_g = float((float(G) ** float(Y)) * np.expm1(float(Y) * np.log1p(1.0 / float(G))))
+    return float(float(C) * gamma_m * (term_m + term_g))
+
+
+def _sample_tempered_pareto(
+    rng: np.random.Generator,
+    *,
+    n: int,
+    eps: float,
+    Y: float,
+    a: float,
+) -> np.ndarray:
+    """Sample x>eps from density proportional to exp(-a x) * x^{-1-Y}.
+
+    Uses a Pareto proposal x ~ eps * U^{-1/Y} (pdf ∝ x^{-1-Y}) and accepts with prob exp(-a(x-eps)).
+    """
+    n = int(n)
+    if n <= 0:
+        return np.zeros((0,), dtype=float)
+    eps = float(eps)
+    Y = float(Y)
+    a = float(a)
+    out = np.empty(n, dtype=float)
+    filled = 0
+    # Batch rejection sampling; for typical parameters this converges quickly.
+    while filled < n:
+        batch = max(1024, int(1.5 * (n - filled)))
+        U = rng.random(batch)
+        x = eps * np.power(U, -1.0 / Y)
+        accept = rng.random(batch) < np.exp(-a * (x - eps))
+        acc = x[accept]
+        take = min(acc.size, n - filled)
+        if take > 0:
+            out[filled : filled + take] = acc[:take]
+            filled += take
+    return out
+
+
+def cgmy_mc_terminal_spots_with_uncertain_prop_divs(
+    *,
+    S0: float,
+    T: float,
+    r: float,
+    q: float,
+    divs: dict,
+    C: float,
+    G: float,
+    M: float,
+    Y: float,
+    trunc_eps: float = 1e-3,
+    n_paths: int = 200_000,
+    seed: int = 123,
+) -> np.ndarray:
+    """Simulate terminal spots S_T under CGMY with uncertain discrete dividends.
+
+    Notes
+    -----
+    - This is a *diagnostic* Monte Carlo, intended for sanity-checking COS pricing.
+    - The CGMY increment simulation uses:
+        - compound Poisson for |x| > trunc_eps
+        - normal approximation for small jumps |x| <= trunc_eps
+      This is most reliable for Y < 1 (finite variation); for Y>=1 it raises.
+    - Dividends are simulated using the same IG-based multiplicative factor as COS.
+    """
+    rng = np.random.default_rng(seed)
+
+    S0 = float(S0)
+    T = float(T)
+    r = float(r)
+    q = float(q)
+    C = float(C)
+    G = float(G)
+    M = float(M)
+    Y = float(Y)
+    trunc_eps = float(trunc_eps)
+    n_paths = int(n_paths)
+
+    if not (0.0 < Y < 1.0):
+        raise ValueError("This CGMY MC diagnostic currently supports only 0<Y<1.")
+    if trunc_eps <= 0.0:
+        raise ValueError("trunc_eps must be > 0")
+
+    divs_prop = cash_divs_to_proportional_divs(float(S0), float(r), float(q), divs)
+    div_items = [(float(t), float(m), float(std)) for t, (m, std) in divs_prop.items() if 0.0 < float(t) <= float(T)]
+    div_items.sort(key=lambda z: z[0])
+
+    times = [0.0] + [t for (t, _, _) in div_items] + [float(T)]
+    dts = np.diff(np.array(times, dtype=float))
+
+    logS = np.full(n_paths, float(np.log(S0)), dtype=float)
+
+    # Precompute small-jump moments per unit time using incomplete gamma.
+    # mean_small_rate(a) = C * ∫_0^eps e^{-a x} x^{-Y} dx = C * a^{Y-1} * γ(1-Y, a eps)
+    # var_small_rate(a)  = C * ∫_0^eps e^{-a x} x^{1-Y} dx = C * a^{Y-2} * γ(2-Y, a eps)
+    g1_pos = _lower_incomplete_gamma(1.0 - Y, M * trunc_eps)
+    g1_neg = _lower_incomplete_gamma(1.0 - Y, G * trunc_eps)
+    g2_pos = _lower_incomplete_gamma(2.0 - Y, M * trunc_eps)
+    g2_neg = _lower_incomplete_gamma(2.0 - Y, G * trunc_eps)
+
+    mean_small_rate_pos = C * (M ** (Y - 1.0)) * g1_pos
+    mean_small_rate_neg = C * (G ** (Y - 1.0)) * g1_neg
+    var_small_rate_pos = C * (M ** (Y - 2.0)) * g2_pos
+    var_small_rate_neg = C * (G ** (Y - 2.0)) * g2_neg
+
+    mean_small_rate = float(mean_small_rate_pos - mean_small_rate_neg)
+    var_small_rate = float(var_small_rate_pos + var_small_rate_neg)
+
+    # Big jump intensities per unit time: λ(a) = C * ∫_eps^∞ e^{-a x} x^{-1-Y} dx = C * a^Y * Γ(-Y, a eps)
+    up_pos = _upper_incomplete_gamma(-Y, M * trunc_eps)
+    up_neg = _upper_incomplete_gamma(-Y, G * trunc_eps)
+    lam_pos_rate = float(C * (M ** Y) * up_pos)
+    lam_neg_rate = float(C * (G ** Y) * up_neg)
+
+    # IMPORTANT: our MC uses a truncated/approximated increment simulation, so using the *exact*
+    # CGMY martingale correction psi(-i) will generally bias the forward.
+    # Instead, compute psi_hat(-i) implied by the *approximate* increment generator:
+    #   small jumps ~ Normal(mean_small_rate*dt, var_small_rate*dt)
+    #   big jumps  ~ compound Poisson with truncated densities on (eps,∞)
+    # Then enforce E[e^{X_dt}] = exp(psi_hat(-i)*dt).
+
+    # Conditional E[e^{+X}] for positive big jumps (requires M>1): I(M-1)/I(M)
+    if M <= 1.0:
+        raise ValueError("CGMY MC diagnostic requires M>1 to compute E[e^{+X}] for truncated positive jumps")
+    I_M = float((M ** Y) * up_pos)
+    up_pos_m1 = _upper_incomplete_gamma(-Y, (M - 1.0) * trunc_eps)
+    I_Mm1 = float(((M - 1.0) ** Y) * up_pos_m1)
+    Eexp_pos = float(I_Mm1 / max(I_M, 1e-300))
+
+    # Conditional E[e^{-X}] for negative big jumps: I(G+1)/I(G)
+    I_G = float((G ** Y) * up_neg)
+    up_neg_p1 = _upper_incomplete_gamma(-Y, (G + 1.0) * trunc_eps)
+    I_Gp1 = float(((G + 1.0) ** Y) * up_neg_p1)
+    Eexp_neg = float(I_Gp1 / max(I_G, 1e-300))
+
+    psi_hat_minus_i = float(
+        (mean_small_rate + 0.5 * var_small_rate)
+        + lam_pos_rate * (Eexp_pos - 1.0)
+        + lam_neg_rate * (Eexp_neg - 1.0)
+    )
+
+    for idx, dt in enumerate(dts, start=1):
+        dt = float(dt)
+        if dt > 0.0:
+            # CGMY log-return increment: (r-q)*dt - psi(-i)*dt + X_dt
+            # where X_dt is the CGMY jump process increment (no dividends).
+            drift = (r - q) * dt - psi_hat_minus_i * dt
+
+            # Small jumps approximated as Normal(mean, var)
+            small_mean = mean_small_rate * dt
+            small_var = max(var_small_rate * dt, 0.0)
+            if small_var > 0.0:
+                logS += drift + small_mean + np.sqrt(small_var) * rng.standard_normal(n_paths)
+            else:
+                logS += drift + small_mean
+
+            # Big jumps: aggregate across all paths using Poisson + bincount.
+            lam_pos = lam_pos_rate * dt
+            lam_neg = lam_neg_rate * dt
+
+            n_pos_total = int(rng.poisson(lam=lam_pos * n_paths)) if lam_pos > 0.0 else 0
+            if n_pos_total > 0:
+                idx_pos = rng.integers(0, n_paths, size=n_pos_total)
+                x_pos = _sample_tempered_pareto(rng, n=n_pos_total, eps=trunc_eps, Y=Y, a=M)
+                logS += np.bincount(idx_pos, weights=x_pos, minlength=n_paths)
+
+            n_neg_total = int(rng.poisson(lam=lam_neg * n_paths)) if lam_neg > 0.0 else 0
+            if n_neg_total > 0:
+                idx_neg = rng.integers(0, n_paths, size=n_neg_total)
+                x_neg = _sample_tempered_pareto(rng, n=n_neg_total, eps=trunc_eps, Y=Y, a=G)
+                logS -= np.bincount(idx_neg, weights=x_neg, minlength=n_paths)
+
+        # Apply dividend at this event time (post-step).
+        if idx < len(times) - 1:
+            _, m, std = div_items[idx - 1]
+            ln1m = float(np.log(max(1.0 - float(m), 1e-12)))
+            if float(std) <= 0.0 or float(m) <= 0.0:
+                if float(m) != 0.0:
+                    logS += ln1m
+            else:
+                mu = float(m)
+                lam = float(_ig_scale_from_mean_std(mu, float(std)))
+                log_LT_1 = _ig_laplace_log(s=1.0 + 0j, mean=mu, scale=lam)
+                log_EexpJ = float(mu + np.real(log_LT_1))
+                const = float(ln1m + mu - log_EexpJ)
+                X = rng.wald(mu, lam, size=n_paths)
+                logS += const - X
+
+    return np.exp(logS)
+
+
+def plot_cgmy_mc_vs_cos_dividend_uncertainty(
+    *,
+    out_png: str = "figs/cgmy_mc_vs_cos_div_uncertainty.png",
+    out_csv: str = "figs/cgmy_mc_vs_cos_div_uncertainty.csv",
+    S0: float = 100.0,
+    T: float = 0.3,
+    r: float = 0.0,
+    q: float = 0.0,
+    cgmy_C: float = 0.02,
+    cgmy_G: float = 2.5,
+    cgmy_M: float = 8.0,
+    cgmy_Y: float = 0.7,
+    calibrate_C_to_sigma_eq: bool = True,
+    target_sigma_eq: float = 0.20,
+    trunc_eps: float = 1e-3,
+    strikes: np.ndarray | None = None,
+    div_mean: float = 2.0,
+    div_times: tuple[float, ...] = (0.25, 0.75),
+    div_stds: tuple[float, ...] | None = (0.0, 0.75, 1.50, 3.0),
+    div_std: float | None = None,
+    is_call: bool = True,
+    mc_paths: int = 300_000,
+    mc_seed: int = 123,
+    cos_N: int = 512,
+    cos_L: float = 10.0,
+    iv_cos_N: int = NT_GLOBAL,
+    iv_cos_L: float = 12.0,
+    use_otm_for_iv: bool = True,
+) -> pd.DataFrame:
+    """Compare CGMY MC vs CGMY COS under uncertain *cash* dividends.
+
+    Like the GBM diagnostic, also reports an equivalent implied vol by inverting to a
+    deterministic-dividend GBM (std=0) for both MC and COS target prices.
+
+    Defaults are set to be more "equity-like" (negative skew via heavier left tail: G < M).
+    """
+    ensure_fig_dir()
+
+    if div_std is not None:
+        div_stds_use = (float(div_std),)
+    else:
+        div_stds_use = tuple(float(x) for x in (div_stds or (0.0,)))
+
+    divs_det = {float(t): (float(div_mean), 0.0) for t in div_times if 0.0 < float(t) <= float(T) + 1e-12}
+    F_det = float(forward_price(float(S0), float(r), float(q), float(T), divs_det))
+
+    # Optionally rescale C so that the base-case (std=0) has a more interpretable variance level.
+    # Under CGMY (no diffusion), c2/T = C * Gamma(2-Y) * (M^(Y-2) + G^(Y-2))  (+ dividend variance proxy, which is 0 for std=0).
+    if calibrate_C_to_sigma_eq:
+        Y = float(cgmy_Y)
+        if not (0.0 < Y < 2.0):
+            raise ValueError("CGMY requires 0<Y<2")
+        denom = float(sp_gamma(2.0 - Y) * ((float(cgmy_M) ** (Y - 2.0)) + (float(cgmy_G) ** (Y - 2.0))))
+        if denom <= 0.0 or not np.isfinite(denom):
+            raise ValueError("Invalid CGMY (G,M,Y) for variance calibration")
+        cgmy_C = float((float(target_sigma_eq) ** 2) / denom)
+
+    # Choose a sensible strike grid using an equivalent vol from the model's c2.
+    if strikes is None:
+        model_det = CGMYCHF(S0, r, q, divs_det, {"C": cgmy_C, "G": cgmy_G, "M": cgmy_M, "Y": cgmy_Y})
+        c2 = float(model_det._var2(T))
+        sigma_eq = float(np.sqrt(max(c2 / max(T, 1e-16), 1e-16)))
+        n_sigma = 3.0
+        width = sigma_eq * float(np.sqrt(max(T, 1e-16)))
+        K_lo = F_det * float(np.exp(-n_sigma * width))
+        K_hi = F_det * float(np.exp(n_sigma * width))
+        strikes = np.linspace(K_lo, K_hi, 33)
+    strikes = np.asarray(strikes, dtype=float)
+
+    rows = []
+    fig, ax = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+    for scenario_idx, div_std_s in enumerate(div_stds_use):
+        divs_unc = {float(t): (float(div_mean), float(div_std_s)) for t in div_times if 0.0 < float(t) <= float(T) + 1e-12}
+
+        S_T = cgmy_mc_terminal_spots_with_uncertain_prop_divs(
+            S0=S0,
+            T=T,
+            r=r,
+            q=q,
+            divs=divs_unc,
+            C=cgmy_C,
+            G=cgmy_G,
+            M=cgmy_M,
+            Y=cgmy_Y,
+            trunc_eps=trunc_eps,
+            n_paths=mc_paths,
+            seed=mc_seed + 97 * scenario_idx,
+        )
+        disc = np.exp(-float(r) * float(T))
+        call_payoff = np.maximum(S_T[:, None] - strikes[None, :], 0.0)
+        put_payoff = np.maximum(strikes[None, :] - S_T[:, None], 0.0)
+        mc_call = disc * call_payoff.mean(axis=0)
+        mc_put = disc * put_payoff.mean(axis=0)
+        mc_call_se = disc * call_payoff.std(axis=0, ddof=1) / np.sqrt(float(mc_paths))
+        mc_put_se = disc * put_payoff.std(axis=0, ddof=1) / np.sqrt(float(mc_paths))
+
+        if is_call:
+            mc_price, mc_se = mc_call, mc_call_se
+        else:
+            mc_price, mc_se = mc_put, mc_put_se
+
+        cgmy_unc = CGMYCHF(S0, r, q, divs_unc, {"C": cgmy_C, "G": cgmy_G, "M": cgmy_M, "Y": cgmy_Y})
+        pr_unc = COSPricer(cgmy_unc, N=cos_N, L=cos_L)
+        cos_call = np.asarray(pr_unc.european_price(strikes, T, is_call=True), dtype=float)
+        cos_put = np.asarray(pr_unc.european_price(strikes, T, is_call=False), dtype=float)
+        cos_price = cos_call if is_call else cos_put
+
+        iv_mc = []
+        iv_cos = []
+        iv_opt_type = []
+        for idx, K in enumerate(strikes):
+            if use_otm_for_iv:
+                use_call = bool(float(K) >= F_det)
+            else:
+                use_call = bool(is_call)
+
+            target_mc = float(mc_call[idx] if use_call else mc_put[idx])
+            target_cos = float(cos_call[idx] if use_call else cos_put[idx])
+            iv_opt_type.append("C" if use_call else "P")
+
+            iv_mc.append(
+                _invert_vol_for_european_cos_price(
+                    target_price=target_mc,
+                    S0=S0,
+                    K=float(K),
+                    T=T,
+                    r=r,
+                    q=q,
+                    divs=divs_det,
+                    is_call=use_call,
+                    N=iv_cos_N,
+                    L=iv_cos_L,
+                )
+            )
+            iv_cos.append(
+                _invert_vol_for_european_cos_price(
+                    target_price=target_cos,
+                    S0=S0,
+                    K=float(K),
+                    T=T,
+                    r=r,
+                    q=q,
+                    divs=divs_det,
+                    is_call=use_call,
+                    N=iv_cos_N,
+                    L=iv_cos_L,
+                )
+            )
+        iv_mc = np.asarray(iv_mc, dtype=float)
+        iv_cos = np.asarray(iv_cos, dtype=float)
+
+        for idx, K in enumerate(strikes):
+            rows.append(
+                {
+                    "div_std": float(div_std_s),
+                    "K": float(K),
+                    "iv_option": iv_opt_type[idx],
+                    "mc_price": float(mc_price[idx]),
+                    "mc_se": float(mc_se[idx]),
+                    "mc_call": float(mc_call[idx]),
+                    "mc_put": float(mc_put[idx]),
+                    "mc_call_se": float(mc_call_se[idx]),
+                    "mc_put_se": float(mc_put_se[idx]),
+                    "cos_price": float(cos_price[idx]),
+                    "cos_call": float(cos_call[idx]),
+                    "cos_put": float(cos_put[idx]),
+                    "abs_diff": float(abs(mc_price[idx] - cos_price[idx])),
+                    "iv_det_gbm_from_mc": float(iv_mc[idx]),
+                    "iv_det_gbm_from_cos": float(iv_cos[idx]),
+                    "cgmy_C": float(cgmy_C),
+                    "cgmy_G": float(cgmy_G),
+                    "cgmy_M": float(cgmy_M),
+                    "cgmy_Y": float(cgmy_Y),
+                    "trunc_eps": float(trunc_eps),
+                    "mc_paths": int(mc_paths),
+                }
+            )
+
+        label_suffix = f"std={div_std_s:.3f}"
+        if abs(float(div_std_s)) <= 1e-15:
+            ax[0].plot(strikes, cos_price, lw=2, marker="x", ms=4, label=f"COS {label_suffix}")
+        else:
+            ax[0].plot(strikes, cos_price, lw=2, label=f"COS {label_suffix}")
+        ax[0].errorbar(
+            strikes,
+            mc_price,
+            yerr=2.0 * mc_se,
+            fmt="o",
+            ms=3,
+            capsize=2,
+            alpha=0.8,
+            label=f"MC ±2SE {label_suffix}",
+        )
+        if abs(float(div_std_s)) <= 1e-15:
+            ax[1].plot(strikes, iv_cos, lw=2, marker="x", ms=4, label=f"IV from COS {label_suffix}")
+        else:
+            ax[1].plot(strikes, iv_cos, lw=2, label=f"IV from COS {label_suffix}")
+        ax[1].plot(strikes, iv_mc, "--", lw=1.5, label=f"IV from MC {label_suffix}")
+
+    df = pd.DataFrame(rows)
+    df.to_csv(out_csv, index=False)
+
+    ax[0].set_ylabel("European price")
+    ax[0].set_title(
+        f"CGMY: MC vs COS with uncertain cash dividends (sweep div std)\n"
+        f"params: C={cgmy_C:.4g} G={cgmy_G:.3g} M={cgmy_M:.3g} Y={cgmy_Y:.3g} | sigma_eq≈{sigma_eq:.3f}"
+    )
+    ax[0].grid(True, alpha=0.3)
+    ax[0].legend(ncol=2, fontsize=9)
+
+    ax[1].set_xlabel("Strike K")
+    ax[1].set_ylabel(
+        "Implied vol (det-div GBM inversion, OTM)" if use_otm_for_iv else "Implied vol (det-div GBM inversion)"
+    )
+    ax[1].grid(True, alpha=0.3)
+    ax[1].legend(ncol=2, fontsize=9)
+
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
+    return df
 
 
 def plot_gbm_mc_vs_cos_dividend_uncertainty(
