@@ -26,7 +26,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from american_options import DiscreteEventJump, GBMCHF, VGCHF
+from american_options import DiscreteEventJump, GBMCHF, VGCHF, MertonCHF, CompositeLevyCHF
 from american_options.engine import COSPricer
 
 
@@ -138,58 +138,78 @@ def main() -> None:
     # Model 2: VG (non-flat implied vol)
     vg = VGCHF(S0=S0, r=r, q=q, divs={}, params={"theta": vg_theta, "sigma": np.sqrt(sigma**2- vg_theta**2 * vg_nu), "nu": vg_nu})
 
-    # COS settings
-    N_gbm, L_gbm = 1024, 10.0
-    N_vg, L_vg = 2048, 12.0
+    # Model 3: Merton (jump-diffusion)
+    merton = MertonCHF(S0=S0, r=r, q=q, divs={}, params={"vol": 0.15, "lam": 3.0, "muJ": -0.04, "sigmaJ": 0.08})
 
-    # Compute surfaces with and without event
-    iv_gbm_base = _iv_surface_from_cos(model=gbm, strikes=strikes, maturities=maturities, event=None, N=N_gbm, L=L_gbm)
-    iv_gbm_evt = _iv_surface_from_cos(model=gbm, strikes=strikes, maturities=maturities, event=event, N=N_gbm, L=L_gbm)
-
-    iv_vg_base = _iv_surface_from_cos(model=vg, strikes=strikes, maturities=maturities, event=None, N=N_vg, L=L_vg)
-    iv_vg_evt = _iv_surface_from_cos(model=vg, strikes=strikes, maturities=maturities, event=event, N=N_vg, L=L_vg)
-
-    # Plot: filled contours = with event, contour lines = no event
-    T_grid, K_grid = np.meshgrid(maturities, strikes)
-
-    all_evt = np.concatenate([iv_gbm_evt[np.isfinite(iv_gbm_evt)], iv_vg_evt[np.isfinite(iv_vg_evt)]])
-    vmin = float(np.nanmin(all_evt))
-    vmax = float(np.nanmax(all_evt))
-    # Keep sane bounds
-    vmin = max(0.01, vmin)
-    vmax = min(3.0, vmax)
-
-    levels = np.linspace(vmin, vmax, 14)
-
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5.6), sharey=True)
-
-    for ax, title, iv_evt, iv_base in [
-        (axes[0], "GBM (flat vol) + event", iv_gbm_evt, iv_gbm_base),
-        (axes[1], "VG (non-flat IV) + event", iv_vg_evt, iv_vg_base),
-    ]:
-        cf = ax.contourf(T_grid, K_grid, iv_evt, levels=levels, cmap="viridis")
-        ax.contour(T_grid, K_grid, iv_base, levels=levels[::2], colors="k", linewidths=0.7, alpha=0.75)
-        ax.axvline(float(event.time), color="w", lw=1.5, alpha=0.9)
-        ax.set_title(title)
-        ax.set_xlabel("Maturity T")
-
-    axes[0].set_ylabel("Strike K")
-
-    cbar = fig.colorbar(cf, ax=axes.ravel().tolist(), shrink=0.95)
-    cbar.set_label("Implied vol (Black–Scholes)\nfill: with event, lines: no event")
-
-    fig.suptitle(
-        f"Implied-vol surfaces with a discrete event jump at t={event.time:.2f} (vertical line)\n"
-        f"Event: p={event.p:.2f}, u={event.u:.3f}, d={event.d:.3f}, martingale_norm={event.ensure_martingale}",
-        y=1.02,
+    # Model 4: Kou+VG composite
+    kouvg = CompositeLevyCHF(
+        S0=S0,
+        r=r,
+        q=q,
+        divs={},
+        params={
+            "components": [
+                {"type": "kou", "params": {"vol": 0.10, "lam": 2.0, "p": 0.3, "eta1": 30.0, "eta2": 8.0}},
+                {"type": "vg", "params": {"theta": -0.15, "sigma": 0.12, "nu": 0.15}},
+            ]
+        },
     )
 
-    fig.tight_layout()
-    out = "figs/event_iv_surfaces_gbm_vs_vg.png"
-    fig.savefig(out, dpi=180)
-    plt.close(fig)
+    # Generate plots for each comparison
+    for model_name, model, N, L, outfile in [
+        ("VG", vg, 2048, 12.0, "figs/event_iv_surfaces_gbm_vs_vg.png"),
+        ("Merton", merton, 2048, 12.0, "figs/event_iv_surfaces_gbm_vs_merton.png"),
+        ("Kou+VG", kouvg, 2048, 12.0, "figs/event_iv_surfaces_gbm_vs_kouvg.png"),
+    ]:
+        N_gbm, L_gbm = 1024, 10.0
 
-    print(f"Wrote: {out}")
+        # Compute surfaces with and without event
+        iv_gbm_base = _iv_surface_from_cos(model=gbm, strikes=strikes, maturities=maturities, event=None, N=N_gbm, L=L_gbm)
+        iv_gbm_evt = _iv_surface_from_cos(model=gbm, strikes=strikes, maturities=maturities, event=event, N=N_gbm, L=L_gbm)
+
+        iv_levy_base = _iv_surface_from_cos(model=model, strikes=strikes, maturities=maturities, event=None, N=N, L=L)
+        iv_levy_evt = _iv_surface_from_cos(model=model, strikes=strikes, maturities=maturities, event=event, N=N, L=L)
+
+        # Plot: filled contours = with event, contour lines = no event
+        T_grid, K_grid = np.meshgrid(maturities, strikes)
+
+        all_evt = np.concatenate([iv_gbm_evt[np.isfinite(iv_gbm_evt)], iv_levy_evt[np.isfinite(iv_levy_evt)]])
+        vmin = float(np.nanmin(all_evt))
+        vmax = float(np.nanmax(all_evt))
+        # Keep sane bounds
+        vmin = max(0.01, vmin)
+        vmax = min(3.0, vmax)
+
+        levels = np.linspace(vmin, vmax, 14)
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5.6), sharey=True)
+
+        for ax, title, iv_evt, iv_base in [
+            (axes[0], "GBM (flat vol) + event", iv_gbm_evt, iv_gbm_base),
+            (axes[1], f"{model_name} (non-flat IV) + event", iv_levy_evt, iv_levy_base),
+        ]:
+            cf = ax.contourf(T_grid, K_grid, iv_evt, levels=levels, cmap="viridis")
+            ax.contour(T_grid, K_grid, iv_base, levels=levels[::2], colors="k", linewidths=0.7, alpha=0.75)
+            ax.axvline(float(event.time), color="w", lw=1.5, alpha=0.9)
+            ax.set_title(title)
+            ax.set_xlabel("Maturity T")
+
+        axes[0].set_ylabel("Strike K")
+
+        cbar = fig.colorbar(cf, ax=axes.ravel().tolist(), shrink=0.95)
+        cbar.set_label("Implied vol (Black–Scholes)\nfill: with event, lines: no event")
+
+        fig.suptitle(
+            f"Implied-vol surfaces with a discrete event jump at t={event.time:.2f} (vertical line)\n"
+            f"Event: p={event.p:.2f}, u={event.u:.3f}, d={event.d:.3f}, martingale_norm={event.ensure_martingale}",
+            y=1.02,
+        )
+
+        fig.tight_layout()
+        fig.savefig(outfile, dpi=180)
+        plt.close(fig)
+
+        print(f"Wrote: {outfile}")
 
 
 if __name__ == "__main__":
