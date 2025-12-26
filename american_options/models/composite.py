@@ -34,7 +34,7 @@ class CompositeLevyCHF(CharacteristicFunction):
       this composite model works in the COS American rollback without extra hooks.
     """
 
-    _SUPPORTED_TYPES = {"merton", "vg", "kou", "cgmy", "gbm"}
+    _SUPPORTED_TYPES = {"merton", "vg", "kou", "cgmy", "nig", "gbm"}
 
     def __init__(self,
                  S0: float,
@@ -61,21 +61,27 @@ class CompositeLevyCHF(CharacteristicFunction):
                 raise ValueError(f"Unsupported component type: {ctype}. Supported: {sorted(self._SUPPORTED_TYPES)}")
             if not isinstance(cparams, dict):
                 raise ValueError("component['params'] must be a dict")
-            normed.append({"type": ctype, "params": dict(cparams)})
+
+            cparams_norm = dict(cparams)
+            # Standardize diffusion volatility key to `sigma`.
+            if ctype in {"gbm", "merton", "kou"} and "sigma" not in cparams_norm and "vol" in cparams_norm:
+                cparams_norm["sigma"] = cparams_norm["vol"]
+                del cparams_norm["vol"]
+            normed.append({"type": ctype, "params": cparams_norm})
 
         self._components = normed
 
     @staticmethod
-    def _psi_unit_merton(u: np.ndarray, *, vol: float, lam: float, muJ: float, sigmaJ: float) -> np.ndarray:
+    def _psi_unit_merton(u: np.ndarray, *, sigma: float, lam: float, muJ: float, sigmaJ: float) -> np.ndarray:
         u = np.asarray(u, dtype=complex)
         phi_jump = np.exp(1j * u * muJ - 0.5 * (u ** 2) * (sigmaJ ** 2))
-        return -0.5 * (u ** 2) * (vol ** 2) + lam * (phi_jump - 1.0)
+        return -0.5 * (u ** 2) * (sigma ** 2) + lam * (phi_jump - 1.0)
 
     @staticmethod
-    def _psi_unit_kou(u: np.ndarray, *, vol: float, lam: float, p: float, eta1: float, eta2: float) -> np.ndarray:
+    def _psi_unit_kou(u: np.ndarray, *, sigma: float, lam: float, p: float, eta1: float, eta2: float) -> np.ndarray:
         u = np.asarray(u, dtype=complex)
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1.0 - p) * (eta2 / (eta2 + 1j * u))
-        return -0.5 * (u ** 2) * (vol ** 2) + lam * (phi_jump - 1.0)
+        return -0.5 * (u ** 2) * (sigma ** 2) + lam * (phi_jump - 1.0)
 
     @staticmethod
     def _psi_unit_vg(u: np.ndarray, *, theta: float, sigma: float, nu: float) -> np.ndarray:
@@ -106,6 +112,17 @@ class CompositeLevyCHF(CharacteristicFunction):
 
         return psi_unit(u)
 
+    @staticmethod
+    def _psi_unit_nig(u: np.ndarray, *, alpha: float, beta: float, delta: float, mu: float) -> np.ndarray:
+        """NIG characteristic exponent per unit time."""
+        u = np.asarray(u, dtype=complex)
+        # Validate basic constraints (same as NIGCHF).
+        if alpha <= 0.0 or delta <= 0.0 or alpha <= abs(beta) or alpha <= abs(beta + 1.0):
+            raise ValueError("Invalid NIG params: require alpha>|beta|, alpha>|beta+1|, delta>0")
+        gamma = np.sqrt((alpha * alpha) - (beta * beta) + 0j)
+        sqrt_term = np.sqrt((alpha * alpha) - (beta + 1j * u) ** 2 + 0j)
+        return 1j * u * mu + delta * (gamma - sqrt_term)
+
     def _psi_unit(self, u: np.ndarray) -> np.ndarray:
         u = np.asarray(u, dtype=complex)
         total = np.zeros_like(u, dtype=complex)
@@ -115,7 +132,7 @@ class CompositeLevyCHF(CharacteristicFunction):
             if ctype == "merton":
                 total += self._psi_unit_merton(
                     u,
-                    vol=float(p.get("vol", 0.0)),
+                    sigma=float(p.get("sigma", p.get("vol", 0.0))),
                     lam=float(p.get("lam", 0.0)),
                     muJ=float(p.get("muJ", 0.0)),
                     sigmaJ=float(p.get("sigmaJ", 0.0)),
@@ -123,7 +140,7 @@ class CompositeLevyCHF(CharacteristicFunction):
             elif ctype == "kou":
                 total += self._psi_unit_kou(
                     u,
-                    vol=float(p.get("vol", 0.0)),
+                    sigma=float(p.get("sigma", p.get("vol", 0.0))),
                     lam=float(p.get("lam", 0.0)),
                     p=float(p.get("p", 0.5)),
                     eta1=float(p.get("eta1", 10.0)),
@@ -144,9 +161,17 @@ class CompositeLevyCHF(CharacteristicFunction):
                     M=float(p.get("M", 5.0)),
                     Y=float(p.get("Y", 0.5)),
                 )
+            elif ctype == "nig":
+                total += self._psi_unit_nig(
+                    u,
+                    alpha=float(p.get("alpha")),
+                    beta=float(p.get("beta")),
+                    delta=float(p.get("delta")),
+                    mu=float(p.get("mu", 0.0)),
+                )
             elif ctype == "gbm":
-                vol = float(p.get("vol", 0.0))
-                total += -0.5 * (u ** 2) * (vol ** 2)
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
+                total += -0.5 * (u ** 2) * (sigma ** 2)
             else:
                 raise RuntimeError(f"Unhandled component type: {ctype}")
         return total
@@ -164,6 +189,8 @@ class CompositeLevyCHF(CharacteristicFunction):
             return "Merton"
         if ctype == "kou":
             return "Kou"
+        if ctype == "nig":
+            return "NIG"
         return ctype
 
     def _component_param_name_map(self) -> dict[str, tuple[int, str]]:
@@ -202,6 +229,8 @@ class CompositeLevyCHF(CharacteristicFunction):
         name_map = self._component_param_name_map()
         if params is None:
             params = list(name_map.keys())
+
+        want_q = "q" in params
         params = [p for p in params if p in name_map]
 
         grad: dict[str, np.ndarray] = {}
@@ -228,6 +257,20 @@ class CompositeLevyCHF(CharacteristicFunction):
 
             grad[name] = (phi_p - phi_m) / (2.0 * h)
 
+        if want_q:
+            base_q = float(self.q)
+            hq = float(rel_step) * max(1.0, abs(base_q))
+            if hq == 0.0:
+                hq = float(rel_step)
+            try:
+                self.q = base_q + hq
+                phi_p = self.increment_char(u, dt)
+                self.q = base_q - hq
+                phi_m = self.increment_char(u, dt)
+            finally:
+                self.q = base_q
+            grad["q"] = (phi_p - phi_m) / (2.0 * hq)
+
         return phi0, grad
 
     def increment_char_and_grad(
@@ -251,8 +294,10 @@ class CompositeLevyCHF(CharacteristicFunction):
         name_map = self._component_param_name_map()
         if params is None:
             params_eff = list(name_map.keys())
+            want_q = False
         else:
             params_eff = [p for p in params if p in name_map]
+            want_q = ("q" in params)
 
         psi_u = np.zeros_like(u, dtype=complex)
         psi_mi = 0.0 + 0.0j
@@ -264,23 +309,23 @@ class CompositeLevyCHF(CharacteristicFunction):
             p = comp["params"]
 
             if ctype == "merton":
-                vol = float(p.get("vol", 0.0))
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
                 lam = float(p.get("lam", 0.0))
                 muJ = float(p.get("muJ", 0.0))
                 sigmaJ = float(p.get("sigmaJ", 0.0))
                 phi_jump_u = np.exp(1j * u * muJ - 0.5 * (u ** 2) * (sigmaJ ** 2))
-                psi_u += -0.5 * (u ** 2) * (vol ** 2) + lam * (phi_jump_u - 1.0)
+                psi_u += -0.5 * (u ** 2) * (sigma ** 2) + lam * (phi_jump_u - 1.0)
                 u_mi = -1j
                 phi_jump_mi = np.exp(1j * u_mi * muJ - 0.5 * (u_mi ** 2) * (sigmaJ ** 2))
-                psi_mi += (-0.5 * (u_mi ** 2) * (vol ** 2) + lam * (phi_jump_mi - 1.0))
+                psi_mi += (-0.5 * (u_mi ** 2) * (sigma ** 2) + lam * (phi_jump_mi - 1.0))
 
                 for name in params_eff:
                     comp_idx, key = name_map[name]
                     if comp_idx != idx:
                         continue
-                    if key == "vol":
-                        dpsi_u[name] += -(u ** 2) * vol
-                        dpsi_mi[name] += -(u_mi ** 2) * vol
+                    if key == "sigma":
+                        dpsi_u[name] += -(u ** 2) * sigma
+                        dpsi_mi[name] += -(u_mi ** 2) * sigma
                     elif key == "lam":
                         dpsi_u[name] += (phi_jump_u - 1.0)
                         dpsi_mi[name] += (phi_jump_mi - 1.0)
@@ -291,7 +336,7 @@ class CompositeLevyCHF(CharacteristicFunction):
                         dpsi_u[name] += lam * phi_jump_u * (-(u ** 2) * sigmaJ)
                         dpsi_mi[name] += lam * phi_jump_mi * (-(u_mi ** 2) * sigmaJ)
             elif ctype == "kou":
-                vol = float(p.get("vol", 0.0))
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
                 lam = float(p.get("lam", 0.0))
                 pp = float(p.get("p", 0.5))
                 eta1 = float(p.get("eta1", 10.0))
@@ -299,12 +344,12 @@ class CompositeLevyCHF(CharacteristicFunction):
                 a_u = eta1 / (eta1 - 1j * u)
                 b_u = eta2 / (eta2 + 1j * u)
                 phi_jump_u = pp * a_u + (1.0 - pp) * b_u
-                psi_u += -0.5 * (u ** 2) * (vol ** 2) + lam * (phi_jump_u - 1.0)
+                psi_u += -0.5 * (u ** 2) * (sigma ** 2) + lam * (phi_jump_u - 1.0)
                 u_mi = -1j
                 a_mi = eta1 / (eta1 - 1j * u_mi)
                 b_mi = eta2 / (eta2 + 1j * u_mi)
                 phi_jump_mi = pp * a_mi + (1.0 - pp) * b_mi
-                psi_mi += (-0.5 * (u_mi ** 2) * (vol ** 2) + lam * (phi_jump_mi - 1.0))
+                psi_mi += (-0.5 * (u_mi ** 2) * (sigma ** 2) + lam * (phi_jump_mi - 1.0))
 
                 da_u_deta1 = (-1j * u) / ((eta1 - 1j * u) ** 2)
                 db_u_deta2 = (1j * u) / ((eta2 + 1j * u) ** 2)
@@ -315,9 +360,9 @@ class CompositeLevyCHF(CharacteristicFunction):
                     comp_idx, key = name_map[name]
                     if comp_idx != idx:
                         continue
-                    if key == "vol":
-                        dpsi_u[name] += -(u ** 2) * vol
-                        dpsi_mi[name] += -(u_mi ** 2) * vol
+                    if key == "sigma":
+                        dpsi_u[name] += -(u ** 2) * sigma
+                        dpsi_mi[name] += -(u_mi ** 2) * sigma
                     elif key == "lam":
                         dpsi_u[name] += (phi_jump_u - 1.0)
                         dpsi_mi[name] += (phi_jump_mi - 1.0)
@@ -356,17 +401,17 @@ class CompositeLevyCHF(CharacteristicFunction):
                         dpsi_u[name] += (1.0 / (nu ** 2)) * np.log(inside_u) - (1.0 / nu) * (dA_u / inside_u)
                         dpsi_mi[name] += (1.0 / (nu ** 2)) * np.log(inside_mi) - (1.0 / nu) * (dA_mi / inside_mi)
             elif ctype == "gbm":
-                vol = float(p.get("vol", 0.0))
-                psi_u += -0.5 * (u ** 2) * (vol ** 2)
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
+                psi_u += -0.5 * (u ** 2) * (sigma ** 2)
                 u_mi = -1j
-                psi_mi += (-0.5 * (u_mi ** 2) * (vol ** 2))
+                psi_mi += (-0.5 * (u_mi ** 2) * (sigma ** 2))
                 for name in params_eff:
                     comp_idx, key = name_map[name]
                     if comp_idx != idx:
                         continue
-                    if key == "vol":
-                        dpsi_u[name] += -(u ** 2) * vol
-                        dpsi_mi[name] += -(u_mi ** 2) * vol
+                    if key == "sigma":
+                        dpsi_u[name] += -(u ** 2) * sigma
+                        dpsi_mi[name] += -(u_mi ** 2) * sigma
             elif ctype == "cgmy":
                 # Hybrid: analytic for C, FD for others to avoid heavy symbolic derivatives.
                 C = float(p.get("C", 0.02))
@@ -416,6 +461,10 @@ class CompositeLevyCHF(CharacteristicFunction):
                 dlog = dt * (dpsi_u[name] - 1j * u * dpsi_mi[name])
                 grad[name] = phi_inc * dlog
 
+        if want_q:
+            # mu_inc = (r-q)dt => d/dq exponent = 1j*u*d(mu_inc)/dq = -1j*u*dt
+            grad["q"] = phi_inc * (-(1j * u) * dt)
+
         return phi_inc, grad
 
     def char_func(self, u: np.ndarray, T: float) -> np.ndarray:
@@ -446,16 +495,16 @@ class CompositeLevyCHF(CharacteristicFunction):
                 lam = float(p.get("lam", 0.0))
                 muJ = float(p.get("muJ", 0.0))
                 sigmaJ = float(p.get("sigmaJ", 0.0))
-                vol = float(p.get("vol", 0.0))
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
                 EY = muJ
                 EY2 = muJ ** 2 + sigmaJ ** 2
                 EY4 = muJ ** 4 + 6.0 * muJ ** 2 * sigmaJ ** 2 + 3.0 * sigmaJ ** 4
                 k1 += lam * T * EY
-                k2 += (vol ** 2) * T + lam * T * EY2
+                k2 += (sigma ** 2) * T + lam * T * EY2
                 k4 += lam * T * EY4
             elif ctype == "kou":
                 lam = float(p.get("lam", 0.0))
-                vol = float(p.get("vol", 0.0))
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
                 pp = float(p.get("p", 0.5))
                 eta1 = float(p.get("eta1", 10.0))
                 eta2 = float(p.get("eta2", 5.0))
@@ -463,7 +512,7 @@ class CompositeLevyCHF(CharacteristicFunction):
                 EY2 = 2.0 * pp * (1.0 / (eta1 ** 2)) + 2.0 * (1.0 - pp) * (1.0 / (eta2 ** 2))
                 EY4 = 24.0 * pp * (1.0 / (eta1 ** 4)) + 24.0 * (1.0 - pp) * (1.0 / (eta2 ** 4))
                 k1 += lam * T * EY
-                k2 += (vol ** 2) * T + lam * T * EY2
+                k2 += (sigma ** 2) * T + lam * T * EY2
                 k4 += lam * T * EY4
             elif ctype == "vg":
                 theta = float(p.get("theta", 0.0))
@@ -485,9 +534,9 @@ class CompositeLevyCHF(CharacteristicFunction):
                 k2 += C * T * float(sp_gamma(2.0 - Y)) * (stable_pow(M, Y - 2.0) + stable_pow(G, Y - 2.0))
                 k4 += C * T * float(sp_gamma(4.0 - Y)) * (stable_pow(M, Y - 4.0) + stable_pow(G, Y - 4.0))
             elif ctype == "gbm":
-                vol = float(p.get("vol", 0.0))
+                sigma = float(p.get("sigma", p.get("vol", 0.0)))
                 # X is Brownian with zero drift.
-                k2 += (vol ** 2) * T
+                k2 += (sigma ** 2) * T
             else:
                 raise RuntimeError(f"Unhandled component type: {ctype}")
 

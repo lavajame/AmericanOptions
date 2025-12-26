@@ -28,7 +28,7 @@ def invert_vol_for_american_price(american_price: float,
 
     def f(vol: float) -> float:
         vol = max(vol, 1e-12)
-        model = GBMCHF(S0, r, q, divs, {"vol": vol})
+        model = GBMCHF(S0, r, q, divs, {"sigma": vol})
         price = model.american_price(np.array([K]), T)[0]
         return price - american_price
 
@@ -60,5 +60,5 @@ def equivalent_gbm(model: CharacteristicFunction, T: float) -> GBMCHF:
     if T <= 0:
         raise ValueError("T must be positive")
     vol_eq = np.sqrt(max(var / T, 0.0))
-    return GBMCHF(model.S0, model.r, model.q, model.divs, {"vol": vol_eq})
+    return GBMCHF(model.S0, model.r, model.q, model.divs, {"sigma": vol_eq})
 

@@ -24,6 +24,7 @@ from american_options import (
     KouCHF,
     VGCHF,
     CGMYCHF,
+    NIGCHF,
     CompositeLevyCHF,
     cash_divs_to_proportional_divs,
     equivalent_gbm,
@@ -429,6 +430,22 @@ def plot_levy_vs_equiv_gbm():
     pc = pr_c.european_price(K, T)
     print(f"CGMY params: C={C_c} G={G_c} M={M_c} Y={Y_c}")
 
+    def _nig_params_for_c2(c2_target: float, *, alpha: float, beta: float, mu: float = 0.0) -> dict:
+        # Var[X_T] = delta * T * alpha^2 / (alpha^2 - beta^2)^(3/2)
+        gamma = float(np.sqrt(max(alpha * alpha - beta * beta, 1e-16)))
+        denom = float(T) * float(alpha * alpha) / float(gamma ** 3)
+        if denom <= 0.0:
+            raise RuntimeError("Invalid NIG variance normalization denominator")
+        delta = float(c2_target / denom)
+        return {"alpha": float(alpha), "beta": float(beta), "delta": float(delta), "mu": float(mu)}
+
+    # NIG (infinite activity, finite variation). Tune delta so c2 matches.
+    nig_params = _nig_params_for_c2(target_c2, alpha=15.0, beta=-5.0, mu=0.0)
+    nig = NIGCHF(S0, r, q, {}, nig_params)
+    pr_n = COSPricer(nig, N=512, L=10.0)
+    pn = pr_n.european_price(K, T)
+    print(f"NIG params: alpha={nig_params['alpha']} beta={nig_params['beta']} delta={nig_params['delta']:.6f} mu={nig_params['mu']}")
+
     # Composite models: split total c2 50/50 between finite-activity and infinite-activity components.
     merton_half_params = _merton_params_for_c2(target_c2_half)
     kou_half_params = _kou_params_for_c2(target_c2_half)
@@ -485,11 +502,12 @@ def plot_levy_vs_equiv_gbm():
     iv_k = to_iv(pk)
     iv_v = to_iv(pv)
     iv_c = to_iv(pc)
+    iv_n = to_iv(pn)
     iv_mv = to_iv(pmv)
     iv_kv = to_iv(pkv)
     iv_gbm = np.full_like(K, float(target_vol), dtype=float)
 
-    fig, ax = plt.subplots(3, 2, figsize=(11, 9), sharex=True, sharey=True)
+    fig, ax = plt.subplots(4, 2, figsize=(11, 11), sharex=True, sharey=True)
 
     def panel(ax0, iv, title):
         ax0.plot(K, iv, label=title)
@@ -503,6 +521,7 @@ def plot_levy_vs_equiv_gbm():
         ("Kou", kou),
         ("VG", vg),
         ("CGMY", cgmy),
+        ("NIG", nig),
         ("Merton+VG", merton_vg),
         ("Kou+VG", kou_vg),
     ]:
@@ -514,14 +533,17 @@ def plot_levy_vs_equiv_gbm():
     panel(ax[0, 1], iv_k, "Kou")
     panel(ax[1, 0], iv_v, "VG")
     panel(ax[1, 1], iv_c, "CGMY")
-    panel(ax[2, 0], iv_mv, "Merton+VG")
-    panel(ax[2, 1], iv_kv, "Kou+VG")
+    panel(ax[2, 0], iv_n, "NIG")
+    panel(ax[2, 1], iv_mv, "Merton+VG")
+    panel(ax[3, 0], iv_kv, "Kou+VG")
+    ax[3, 1].axis("off")
 
     ax[0, 0].set_ylabel("Implied vol")
     ax[1, 0].set_ylabel("Implied vol")
     ax[2, 0].set_ylabel("Implied vol")
-    ax[2, 0].set_xlabel("Strike")
-    ax[2, 1].set_xlabel("Strike")
+    ax[3, 0].set_ylabel("Implied vol")
+    ax[3, 0].set_xlabel("Strike")
+    ax[3, 1].set_xlabel("Strike")
     fig.tight_layout()
     fig.savefig("figs/levy_vs_equiv_gbm.png", dpi=150)
     plt.close(fig)

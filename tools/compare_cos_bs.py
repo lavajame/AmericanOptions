@@ -1,5 +1,5 @@
 import numpy as np
-from american_options import GBMCHF, MertonCHF, VGCHF, CGMYCHF
+from american_options import GBMCHF, MertonCHF, NIGCHF, VGCHF, CGMYCHF
 from american_options.engine import COSPricer
 from scipy.stats import norm
 
@@ -44,18 +44,27 @@ def compare():
     pr_cgmy = COSPricer(cgmy, N=512, L=8.0)
     cos_cgmy = pr_cgmy.european_price(K, T)
 
-    print("Strike", "BS(GBM)", "COS(GBM)", "Diff", "COS(Merton)", "Diff", "COS(VG)", "Diff", "COS(CGMY)", "Diff(CGMY)")
+    # NIG: Approximate BS by using beta=0 and large alpha; choose delta so Var matches.
+    alpha = 100.0
+    delta = (vol ** 2) * alpha  # for beta=0, var_rate = delta/alpha
+    nig = NIGCHF(S0, r, q, divs, {"alpha": alpha, "beta": 0.0, "delta": delta, "mu": 0.0})
+    pr_nig = COSPricer(nig, N=512, L=8.0)
+    cos_nig = pr_nig.european_price(K, T)
+
+    print("Strike", "BS(GBM)", "COS(GBM)", "Diff", "COS(Merton)", "Diff", "COS(VG)", "Diff", "COS(CGMY)", "Diff(CGMY)", "COS(NIG)", "Diff(NIG)")
     for i, k in enumerate(K):
         print(f"{k:6.1f}", f"{bs_gbm[i]:10.6f}", f"{cos_gbm[i]:10.6f}", f"{(cos_gbm[i]-bs_gbm[i]):9.3e}",
               f"{cos_merton[i]:10.6f}", f"{(cos_merton[i]-bs_gbm[i]):9.3e}",
               f"{cos_vg[i]:10.6f}", f"{(cos_vg[i]-bs_gbm[i]):9.3e}",
-              f"{cos_cgmy[i]:10.6f}", f"{(cos_cgmy[i]-bs_gbm[i]):9.3e}")
+              f"{cos_cgmy[i]:10.6f}", f"{(cos_cgmy[i]-bs_gbm[i]):9.3e}",
+              f"{cos_nig[i]:10.6f}", f"{(cos_nig[i]-bs_gbm[i]):9.3e}")
 
     print("\nMax abs diffs (vs BS):")
     print("GBM COS vs BS:   ", np.max(np.abs(cos_gbm - bs_gbm)))
     print("Merton COS vs BS:", np.max(np.abs(cos_merton - bs_gbm)))
     print("VG COS vs BS:    ", np.max(np.abs(cos_vg - bs_gbm)))
     print("CGMY COS vs BS:  ", np.max(np.abs(cos_cgmy - bs_gbm)))
+    print("NIG COS vs BS:   ", np.max(np.abs(cos_nig - bs_gbm)))
 
 
 if __name__ == '__main__':

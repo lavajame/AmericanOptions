@@ -14,9 +14,9 @@ def main() -> None:
     divs = {0.5: (3.0, 0.5)}  # 6‑month cash dividend: mean $3.00, stdev $0.50
 
     # Model parameters
-    params_gbm = {"vol": 0.25}
-    params_merton = {"vol": 0.20, "lam": 0.10, "muJ": -0.05, "sigmaJ": 0.10}
-    params_kou = {"vol": 0.20, "lam": 0.10, "p": 0.5, "eta1": 10, "eta2": 5}
+    params_gbm = {"sigma": 0.25}
+    params_merton = {"sigma": 0.20, "lam": 0.10, "muJ": -0.05, "sigmaJ": 0.10}
+    params_kou = {"sigma": 0.20, "lam": 0.10, "p": 0.5, "eta1": 10, "eta2": 5}
     params_vg = {"theta": -0.14, "sigma": 0.20, "nu": 0.20}
 
     # Instantiate the characteristic‑function objects

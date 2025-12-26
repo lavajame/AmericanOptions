@@ -41,7 +41,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from american_options import CGMYCHF, GBMCHF, KouCHF, MertonCHF, VGCHF
+from american_options import CGMYCHF, GBMCHF, KouCHF, MertonCHF, NIGCHF, VGCHF
 from american_options.engine import COSPricer
 
 
@@ -147,6 +147,14 @@ def _build_models(*, S0: float, r: float, q: float, target_vol: float) -> list[M
     cgmy_var_rate_per_C = float(sp_gamma(2.0 - cgmy_Y) * (cgmy_M ** (cgmy_Y - 2.0) + cgmy_G ** (cgmy_Y - 2.0)))
     cgmy_C = float(var_rate / max(cgmy_var_rate_per_C, 1e-300))
 
+    # NIG: choose (alpha, beta) for skew; tune delta to match variance rate.
+    nig_alpha = 15.0
+    nig_beta = -5.0
+    nig_gamma = float(np.sqrt(max((nig_alpha ** 2) - (nig_beta ** 2), 1e-16)))
+    nig_var_rate_per_delta = float((nig_alpha ** 2) / (nig_gamma ** 3))
+    nig_delta = float(var_rate / max(nig_var_rate_per_delta, 1e-300))
+    nig_mu = 0.0
+
     models: list[ModelSpec] = [
         ModelSpec("GBM", GBMCHF(S0=S0, r=r, q=q, divs={}, params={"vol": float(target_vol)})),
         ModelSpec(
@@ -182,6 +190,10 @@ def _build_models(*, S0: float, r: float, q: float, target_vol: float) -> list[M
         ModelSpec(
             "CGMY",
             CGMYCHF(S0=S0, r=r, q=q, divs={}, params={"C": cgmy_C, "G": float(cgmy_G), "M": float(cgmy_M), "Y": float(cgmy_Y)}),
+        ),
+        ModelSpec(
+            "NIG",
+            NIGCHF(S0=S0, r=r, q=q, divs={}, params={"alpha": float(nig_alpha), "beta": float(nig_beta), "delta": float(nig_delta), "mu": float(nig_mu)}),
         ),
     ]
 
@@ -236,6 +248,14 @@ def _model_from_params(*, name: str, S0: float, r: float, q: float, params: dict
         )
     if name_u == "CGMY":
         return CGMYCHF(S0=S0, r=r, q=q, divs={}, params={"C": float(params["C"]), "G": float(params["G"]), "M": float(params["M"]), "Y": float(params["Y"])})
+    if name_u == "NIG":
+        return NIGCHF(
+            S0=S0,
+            r=r,
+            q=q,
+            divs={},
+            params={"alpha": float(params["alpha"]), "beta": float(params["beta"]), "delta": float(params["delta"]), "mu": float(params.get("mu", 0.0))},
+        )
     raise ValueError(f"Unknown model name for calibration: {name}")
 
 
@@ -249,6 +269,8 @@ def _display_model_name(name: str) -> str:
         return "Merton"
     if name_u == "KOU":
         return "Kou"
+    if name_u == "NIG":
+        return "NIG"
     return name_u.title()
 
 

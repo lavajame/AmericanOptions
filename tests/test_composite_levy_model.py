@@ -11,7 +11,7 @@ def test_composite_single_component_matches_merton_char_func():
     S0, r, q = 100.0, 0.03, 0.01
     T = 0.7
     divs = {}
-    merton_params = {"vol": 0.18, "lam": 0.9, "muJ": -0.08, "sigmaJ": 0.22}
+    merton_params = {"sigma": 0.18, "lam": 0.9, "muJ": -0.08, "sigmaJ": 0.22}
 
     base = MertonCHF(S0, r, q, divs, merton_params)
     comp = CompositeLevyCHF(
@@ -57,7 +57,7 @@ def test_composite_merton_plus_vg_martingale_and_variance_additivity():
     T = 0.5
     divs = {}
 
-    merton_params = {"vol": 0.12, "lam": 0.6, "muJ": -0.10, "sigmaJ": 0.25}
+    merton_params = {"sigma": 0.12, "lam": 0.6, "muJ": -0.10, "sigmaJ": 0.25}
     vg_params = {"theta": -0.10, "sigma": 0.15, "nu": 0.30}
 
     merton = MertonCHF(S0, r, q, divs, merton_params)

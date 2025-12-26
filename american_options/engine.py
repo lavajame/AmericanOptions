@@ -32,6 +32,7 @@ from .models import (
     GBMCHF,
     KouCHF,
     MertonCHF,
+    NIGCHF,
     VGCHF,
 )
 from .models.duality import DualModel
@@ -53,6 +54,7 @@ __all__ = [
     "KouCHF",
     "VGCHF",
     "CGMYCHF",
+    "NIGCHF",
     "CompositeLevyCHF",
     "DualModel",
     # Dividends

@@ -12,9 +12,24 @@ from ..dividends import _dividend_adjustment, dividend_char_factor
 class KouCHF(CharacteristicFunction):
     """Kou double‑exponential jump‑diffusion."""
 
+    def __init__(
+        self,
+        S0: float,
+        r: float,
+        q: float,
+        divs: Dict[float, Tuple[float, float]],
+        params: Dict[str, Any],
+    ):
+        params = dict(params)
+        # Standardize diffusion volatility parameter name to `sigma`.
+        if "sigma" not in params and "vol" in params:
+            params["sigma"] = params["vol"]
+            del params["vol"]
+        super().__init__(S0, r, q, divs, params)
+
     def char_func(self, u: np.ndarray, T: float) -> np.ndarray:
         u = np.asarray(u, dtype=complex)
-        vol = float(self.params["vol"])
+        sigma = float(self.params["sigma"])
         lam = float(self.params.get("lam", 0.0))
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
@@ -26,15 +41,15 @@ class KouCHF(CharacteristicFunction):
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1 - p) * (eta2 / (eta2 + 1j * u))
         # E[e^{Y}] for compensation (kappa)
         kappa = p * (eta1 / (eta1 - 1.0)) + (1 - p) * (eta2 / (eta2 + 1.0)) - 1.0
-        mu = np.log(self.S0) + (self.r - self.q) * T - lam * kappa * T - 0.5 * (vol ** 2) * T
-        phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * (vol ** 2) * T + lam * T * (phi_jump - 1.0))
+        mu = np.log(self.S0) + (self.r - self.q) * T - lam * kappa * T - 0.5 * (sigma ** 2) * T
+        phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * (sigma ** 2) * T + lam * T * (phi_jump - 1.0))
         return phi * dividend_char_factor(u, T, self.divs)
 
     def increment_char(self, u: np.ndarray, dt: float) -> np.ndarray:
         """Characteristic of log-return increment over dt."""
         u = np.asarray(u, dtype=complex)
         dt = float(dt)
-        vol = float(self.params["vol"])
+        sigma = float(self.params["sigma"])
         lam = float(self.params.get("lam", 0.0))
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
@@ -42,8 +57,8 @@ class KouCHF(CharacteristicFunction):
 
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1.0 - p) * (eta2 / (eta2 + 1j * u))
         kappa = p * (eta1 / (eta1 - 1.0)) + (1.0 - p) * (eta2 / (eta2 + 1.0)) - 1.0
-        mu_term = (self.r - self.q) * dt - lam * kappa * dt - 0.5 * (vol ** 2) * dt
-        exponent = 1j * u * mu_term - 0.5 * (u ** 2) * (vol ** 2) * dt + lam * dt * (phi_jump - 1.0)
+        mu_term = (self.r - self.q) * dt - lam * kappa * dt - 0.5 * (sigma ** 2) * dt
+        exponent = 1j * u * mu_term - 0.5 * (u ** 2) * (sigma ** 2) * dt + lam * dt * (phi_jump - 1.0)
         phi = np.exp(exponent)
         return phi * dividend_char_factor(u, dt, self.divs)
 
@@ -65,7 +80,7 @@ class KouCHF(CharacteristicFunction):
         if params is None:
             params = self.param_names()
 
-        vol = float(self.params["vol"])
+        sigma = float(self.params["sigma"])
         lam = float(self.params.get("lam", 0.0))
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
@@ -73,16 +88,16 @@ class KouCHF(CharacteristicFunction):
 
         phi_jump = p * (eta1 / (eta1 - 1j * u)) + (1.0 - p) * (eta2 / (eta2 + 1j * u))
         kappa = p * (eta1 / (eta1 - 1.0)) + (1.0 - p) * (eta2 / (eta2 + 1.0)) - 1.0
-        mu_term = (self.r - self.q) * dt - lam * kappa * dt - 0.5 * (vol ** 2) * dt
-        exponent = 1j * u * mu_term - 0.5 * (u ** 2) * (vol ** 2) * dt + lam * dt * (phi_jump - 1.0)
+        mu_term = (self.r - self.q) * dt - lam * kappa * dt - 0.5 * (sigma ** 2) * dt
+        exponent = 1j * u * mu_term - 0.5 * (u ** 2) * (sigma ** 2) * dt + lam * dt * (phi_jump - 1.0)
         phi_base = np.exp(exponent)
         phi = phi_base * dividend_char_factor(u, dt, self.divs)
 
         grad: dict[str, np.ndarray] = {}
 
-        if "vol" in params:
-            dlog = (-(u ** 2 + 1j * u) * vol * dt)
-            grad["vol"] = phi * dlog
+        if "sigma" in params:
+            dlog = (-(u ** 2 + 1j * u) * sigma * dt)
+            grad["sigma"] = phi * dlog
 
         if "lam" in params:
             dlog = dt * (phi_jump - 1.0 - 1j * u * kappa)
@@ -109,17 +124,17 @@ class KouCHF(CharacteristicFunction):
         return phi, grad
 
     def _var2(self, T: float) -> float:
-        vol = float(self.params["vol"])
+        sigma = float(self.params["sigma"])
         lam = float(self.params.get("lam", 0.0))
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
         eta2 = float(self.params.get("eta2", 5.0))
         var_jumps = lam * T * (p * 2.0 / (eta1 ** 2) + (1 - p) * 2.0 / (eta2 ** 2))
-        return (vol ** 2) * T + var_jumps
+        return (sigma ** 2) * T + var_jumps
 
     def cumulants(self, T: float) -> Tuple[float, float, float]:
         sum_log, _ = _dividend_adjustment(T, self.divs)
-        vol = float(self.params["vol"])
+        sigma = float(self.params["sigma"])
         lam = float(self.params.get("lam", 0.0))
         p = float(self.params.get("p", 0.5))
         eta1 = float(self.params.get("eta1", 10.0))
@@ -130,8 +145,8 @@ class KouCHF(CharacteristicFunction):
         EY2 = 2.0 * p * (1.0 / (eta1 ** 2)) + 2.0 * (1 - p) * (1.0 / (eta2 ** 2))
         EY4 = 24.0 * p * (1.0 / (eta1 ** 4)) + 24.0 * (1 - p) * (1.0 / (eta2 ** 4))
 
-        c1 = np.log(self.S0) + (self.r - self.q) * T + sum_log - lam * kappa * T - 0.5 * (vol ** 2) * T + lam * T * EY
-        c2 = (vol ** 2) * T + lam * T * EY2
+        c1 = np.log(self.S0) + (self.r - self.q) * T + sum_log - lam * kappa * T - 0.5 * (sigma ** 2) * T + lam * T * EY
+        c2 = (sigma ** 2) * T + lam * T * EY2
         c4 = lam * T * EY4
         return float(c1), float(c2), float(c4)
 

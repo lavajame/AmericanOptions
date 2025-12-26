@@ -1803,8 +1803,11 @@ class COSPricer:
         Return Var[ln S_T] (default approximation: diffusion variance).
         Override if the model has jumps or different structure.
         """
-        vol = float(self.params.get("vol", 0.0))
-        return (vol ** 2) * T
+        params = getattr(self.model, "params", {})
+        if not isinstance(params, dict):
+            params = {}
+        sigma = float(params.get("sigma", params.get("vol", 0.0)))
+        return (sigma ** 2) * T
 
 
 

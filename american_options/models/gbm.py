@@ -12,15 +12,30 @@ from ..dividends import _dividend_adjustment, dividend_char_factor
 class GBMCHF(CharacteristicFunction):
     """Black‑Scholes / GBM characteristic function."""
 
+    def __init__(
+        self,
+        S0: float,
+        r: float,
+        q: float,
+        divs: Dict[float, Tuple[float, float]],
+        params: Dict[str, Any],
+    ):
+        params = dict(params)
+        # Standardize diffusion volatility parameter name to `sigma`.
+        if "sigma" not in params and "vol" in params:
+            params["sigma"] = params["vol"]
+            del params["vol"]
+        super().__init__(S0, r, q, divs, params)
+
     def char_func(self, u: np.ndarray, T: float) -> np.ndarray:
         """
         GBM characteristic function with discrete dividends.
         """
         u = np.asarray(u, dtype=complex)
-        vol = float(self.params["vol"])
+        sigma = float(self.params["sigma"])
         # Base GBM (no dividends)
-        mu = np.log(self.S0) + (self.r - self.q - 0.5 * (vol ** 2)) * T
-        phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * ((vol ** 2) * T))
+        mu = np.log(self.S0) + (self.r - self.q - 0.5 * (sigma ** 2)) * T
+        phi = np.exp(1j * u * mu - 0.5 * (u ** 2) * ((sigma ** 2) * T))
         # Multiply by dividend characteristic factor (handles mean + uncertainty)
         return phi * dividend_char_factor(u, T, self.divs)
 
@@ -28,9 +43,9 @@ class GBMCHF(CharacteristicFunction):
         """Characteristic of log-return increment over dt: E[e^{i u (ln S_{t+dt}-ln S_t)}]."""
         # For GBM, increment characteristic equals exp(-0.5 u^2 sigma^2 dt + i u (r - q - 0.5 sigma^2) dt)
         u = np.asarray(u, dtype=complex)
-        vol = float(self.params["vol"])
-        mu_term = (self.r - self.q - 0.5 * (vol ** 2)) * float(dt)
-        phi = np.exp(1j * u * mu_term - 0.5 * (u ** 2) * ((vol ** 2) * float(dt)))
+        sigma = float(self.params["sigma"])
+        mu_term = (self.r - self.q - 0.5 * (sigma ** 2)) * float(dt)
+        phi = np.exp(1j * u * mu_term - 0.5 * (u ** 2) * ((sigma ** 2) * float(dt)))
         return phi * dividend_char_factor(u, float(dt), self.divs)
 
     def increment_char_and_grad(
@@ -50,29 +65,29 @@ class GBMCHF(CharacteristicFunction):
         if params is None:
             params = self.param_names()
 
-        vol = float(self.params["vol"])
-        mu_term = (self.r - self.q - 0.5 * (vol ** 2)) * dt
-        phi_base = np.exp(1j * u * mu_term - 0.5 * (u ** 2) * ((vol ** 2) * dt))
+        sigma = float(self.params["sigma"])
+        mu_term = (self.r - self.q - 0.5 * (sigma ** 2)) * dt
+        phi_base = np.exp(1j * u * mu_term - 0.5 * (u ** 2) * ((sigma ** 2) * dt))
         phi = phi_base * dividend_char_factor(u, dt, self.divs)
 
         grad: dict[str, np.ndarray] = {}
-        if "vol" in params:
-            dlog_dvol = (-1j * u * vol * dt) - (u ** 2) * vol * dt
-            grad["vol"] = phi * dlog_dvol
+        if "sigma" in params:
+            dlog_dsigma = (-1j * u * sigma * dt) - (u ** 2) * sigma * dt
+            grad["sigma"] = phi * dlog_dsigma
         return phi, grad
 
     def cumulants(self, T: float) -> Tuple[float, float, float]:
         sum_log, div_params = _dividend_adjustment(T, self.divs)
         var_div = float(np.sum(div_params[:, 1])) if div_params.size else 0.0
-        vol = float(self.params["vol"])
-        c2 = (vol ** 2) * T + var_div
-        c1 = np.log(self.S0) + (self.r - self.q) * T + sum_log - 0.5 * ((vol ** 2) * T)
+        sigma = float(self.params["sigma"])
+        c2 = (sigma ** 2) * T + var_div
+        c1 = np.log(self.S0) + (self.r - self.q) * T + sum_log - 0.5 * ((sigma ** 2) * T)
         c4 = 0.0
         return float(c1), float(c2), float(c4)
 
     def _var2(self, T: float) -> float:
-        vol = float(self.params["vol"])
-        return (vol ** 2) * T
+        sigma = float(self.params["sigma"])
+        return (sigma ** 2) * T
 
 
 

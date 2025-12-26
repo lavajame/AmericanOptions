@@ -18,13 +18,13 @@ def test_gbm_european_price_vol_sensitivity_matches_fd():
     T = 0.5
     K = 105.0
     divs = {}
-    model = GBMCHF(S0, r, q, divs, {"vol": 0.2})
+    model = GBMCHF(S0, r, q, divs, {"sigma": 0.2})
 
     price, sens = model.european_price(np.array([K]), T, return_sensitivities=True)
-    d_analytic = float(sens["vol"][0])
+    d_analytic = float(sens["sigma"][0])
 
     h = 1e-5
-    d_fd = _fd_price(model, K, T, pname="vol", h=h, american=False, use_softmax=False)
+    d_fd = _fd_price(model, K, T, pname="sigma", h=h, american=False, use_softmax=False)
 
     # COS truncation window is frozen; allow a small tolerance.
     assert abs(d_analytic - d_fd) / max(1.0, abs(d_fd)) < 5e-3
@@ -51,7 +51,7 @@ def test_gbm_american_softmax_vol_sensitivity_runs_and_is_reasonable():
     T = 0.5
     K = 100.0
     divs = {}
-    model = GBMCHF(S0, r, q, divs, {"vol": 0.2})
+    model = GBMCHF(S0, r, q, divs, {"sigma": 0.2})
 
     price, sens = model.american_price(
         np.array([K]),
@@ -61,10 +61,10 @@ def test_gbm_american_softmax_vol_sensitivity_runs_and_is_reasonable():
         beta=25.0,
         return_sensitivities=True,
     )
-    d_analytic = float(sens["vol"][0])
+    d_analytic = float(sens["sigma"][0])
 
     h = 2e-5
-    d_fd = _fd_price(model, K, T, pname="vol", h=h, american=True, use_softmax=True)
+    d_fd = _fd_price(model, K, T, pname="sigma", h=h, american=True, use_softmax=True)
 
     assert np.isfinite(d_analytic)
     assert abs(d_analytic - d_fd) / max(1.0, abs(d_fd)) < 5e-2
@@ -72,11 +72,11 @@ def test_gbm_american_softmax_vol_sensitivity_runs_and_is_reasonable():
 
 def test_merton_increment_char_grad_shapes():
     S0, r, q = 100.0, 0.02, 0.0
-    model = MertonCHF(S0, r, q, {}, {"vol": 0.15, "lam": 0.8, "muJ": -0.05, "sigmaJ": 0.12})
+    model = MertonCHF(S0, r, q, {}, {"sigma": 0.15, "lam": 0.8, "muJ": -0.05, "sigmaJ": 0.12})
     u = np.linspace(0.0, 50.0, 64)
     phi, grad = model.increment_char_and_grad(u, 0.3)
     assert phi.shape == (64,)
-    for k in ["vol", "lam", "muJ", "sigmaJ"]:
+    for k in ["sigma", "lam", "muJ", "sigmaJ"]:
         assert k in grad
         assert grad[k].shape == (64,)
 

@@ -15,7 +15,7 @@ Supported (implemented here)
 Not supported in this codebase (skipped)
 ---------------------------------------
 - Barrier options (Tables 4–7): requires a discrete barrier pricer.
-- NIG model (Tables 4–7): not implemented in american_options.engine.
+- NIG tables (Tables 4–7): the NIG model is implemented, but barrier pricers are not.
 
 Notes
 -----
@@ -73,7 +73,7 @@ def richardson_4point(pricer: COSPricer, K: float, T: float, base_steps: int, *,
 
 
 def bermudan_put_bsm(*, S0: float, K: float, T: float, r: float, q: float, sigma: float, steps: int, N: int, L: float) -> float:
-    model = GBMCHF(S0=S0, r=r, q=q, divs={}, params={"vol": float(sigma)})
+    model = GBMCHF(S0=S0, r=r, q=q, divs={}, params={"sigma": float(sigma)})
     pricer = COSPricer(model, N=N, L=L)
     return float(pricer.american_price(np.array([K]), T, steps=steps, is_call=False)[0])
 
@@ -134,7 +134,7 @@ def main() -> int:
         print_result(Result(f"Table3 d={d} (base M=2^{d})", val, ref_am))
 
     print("-")
-    print("Skipped: Barrier-option tables (Tables 4–7) – barrier/NIG pricers not implemented in this repo")
+    print("Skipped: Barrier-option tables (Tables 4–7) – barrier pricers not implemented in this repo")
 
     return 0
 

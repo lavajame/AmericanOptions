@@ -14,10 +14,10 @@ def test_equivalent_gbm_matches_merton_no_jumps():
     S0, r, q, T = 100.0, 0.02, 0.0, 1.0
     divs = {}
     vol = 0.30
-    merton = MertonCHF(S0, r, q, divs, {"vol": vol, "lam": 0.0, "muJ": 0.0, "sigmaJ": 0.1})
+    merton = MertonCHF(S0, r, q, divs, {"sigma": vol, "lam": 0.0, "muJ": 0.0, "sigmaJ": 0.1})
     gbm_eq = equivalent_gbm(merton, T)
     assert isinstance(gbm_eq, GBMCHF)
-    assert abs(gbm_eq.params["vol"] - vol) < 1e-12
+    assert abs(gbm_eq.params["sigma"] - vol) < 1e-12
     K = np.array([80.0, 100.0, 120.0])
     pm = _prices(merton, K, T)
     pg = _prices(gbm_eq, K, T)
@@ -50,12 +50,12 @@ def test_equivalent_gbm_kou_small_intensity():
     lam = 0.01  # small jump intensity to stay close to GBM
     p = 0.5
     eta1, eta2 = 20.0, 25.0
-    kou = KouCHF(S0, r, q, divs, {"vol": vol, "lam": lam, "p": p, "eta1": eta1, "eta2": eta2})
+    kou = KouCHF(S0, r, q, divs, {"sigma": vol, "lam": lam, "p": p, "eta1": eta1, "eta2": eta2})
     gbm_eq = equivalent_gbm(kou, T)
     K = np.array([90.0, 100.0, 110.0])
     pk = _prices(kou, K, T)
     pg = _prices(gbm_eq, K, T)
     diff = pk - pg
-    print("Kou vs GBM eq", pk, pg, diff, "vol_eq", gbm_eq.params["vol"])
+    print("Kou vs GBM eq", pk, pg, diff, "sigma_eq", gbm_eq.params["sigma"])
     # should be close because jump intensity and jump sizes are tiny; allow loose tolerance
     assert np.allclose(pk, pg, rtol=2e-3, atol=5e-4)

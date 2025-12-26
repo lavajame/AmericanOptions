@@ -31,7 +31,7 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from american_options import CGMYCHF, KouCHF, MertonCHF, VGCHF
+from american_options import CGMYCHF, KouCHF, MertonCHF, NIGCHF, VGCHF
 from american_options.engine import COSPricer
 
 
@@ -123,6 +123,8 @@ def _build_model(name: str, *, S0: float, r: float, q: float, params: dict[str, 
         )
     if name_u == "CGMY":
         return CGMYCHF(S0=S0, r=r, q=q, divs={}, params={"C": float(params["C"]), "G": float(params["G"]), "M": float(params["M"]), "Y": float(params["Y"])})
+    if name_u == "NIG":
+        return NIGCHF(S0=S0, r=r, q=q, divs={}, params={"alpha": float(params["alpha"]), "beta": float(params["beta"]), "delta": float(params["delta"]), "mu": float(params.get("mu", 0.0))})
     raise ValueError(f"Unsupported model: {name}")
 
 
@@ -178,8 +180,8 @@ def main(argv: list[str] | None = None) -> None:
     # Normalize keys to uppercase
     model_params_u = {str(k).upper(): {kk: float(vv) for kk, vv in v.items()} for k, v in model_params.items()}
 
-    names = ["VG", "MERTON", "KOU", "CGMY"]
-    models = {nm: _build_model(nm, S0=S0, r=r, q=q, params=model_params_u[nm]) for nm in names}
+    names = ["VG", "MERTON", "KOU", "CGMY", "NIG"]
+    models = {nm: _build_model(nm, S0=S0, r=r, q=q, params=model_params_u[nm]) for nm in names if nm in model_params_u}
 
     Ts = _parse_Ts(str(args.Ts))
     if len(Ts) != 3:
