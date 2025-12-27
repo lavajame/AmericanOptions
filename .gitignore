@@ -22,3 +22,13 @@ figs/* - Copy.*
 # Temporary / scratch outputs
 tools/_tmp*
 figs/tmp*
+
+# Exploratory figure artifacts (keep repo clean)
+figs/boundaries_probs_*.csv
+figs/call_boundary_heuristics*.png
+figs/boundary_heuristic_vs_eep_put.png
+figs/cgmy_iv_T*.png
+figs/cross_model_kou_to_cgmy_iv.*
+
+# Preferred tracked output (do not ignore)
+!figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png
