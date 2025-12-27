@@ -388,7 +388,7 @@ def main():
 
     # Provide sensible defaults for Merton if user didn't supply params
     if (not model_params) and args.model.strip().lower() == 'merton':
-        model_params = {'sigma': 0.06, 'lam': 0.5, 'muJ': -0.05, 'sigmaJ': 0.03}
+        model_params = {'sigma': 0.03, 'lam': 0.5, 'muJ': -0.05, 'sigmaJ': 0.03}
 
     print(f"Effective implied volatility for model {args.model} with params {model_params}: {np.sqrt(model_params.get('sigma', 0.2) ** 2 + model_params.get('lam', 0.0) * (model_params.get('muJ', 0.0) ** 2 + model_params.get('sigmaJ', 0.0) ** 2)):.2%}")
 
@@ -397,19 +397,19 @@ def main():
     # Baseline
     S0 = 100.0
     K = 100.0
-    r = 0.01
-    q = -0.005
+    r = 0.03
+    q = 0.025
     T = 0.5
 
     # case A: continuous yield (unless user provides divs)
-    case_a = {'name': 'Continuous yield', 'S0': S0, 'K': K, 'r': r, 'q': q * 0 + 0.025, 'T': T, 'divs_cash': divs_input if divs_input else {}}
+    case_a = {'name': 'Continuous yield', 'S0': S0, 'K': K, 'r': r, 'q': q, 'T': T, 'divs_cash': divs_input if divs_input else {}}
 
     # case B: discrete dividends (user-provided or defaults)
     # default two cash dividends chosen to match prior experiments
     if divs_input:
         divs_b = divs_input
     else:
-        divs_b = {0.1: (1.0, 0.0), 0.25: (0.25, 0.0), 0.35: (0.25, 0.0)}
+        divs_b = {0.1: (1.0, 0.0), 0.25: (1.0, 0.0), 0.35: (1.0, 0.0)}
     case_b = {'name': 'Discrete cash dividend (two)', 'S0': S0, 'K': K, 'r': r, 'q': q, 'T': T, 'divs_cash': divs_b}
 
     model_cls = make_model_cls(args.model)
