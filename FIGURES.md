@@ -84,6 +84,16 @@ If you just want to refresh everything:
 
   What it shows: compares Richardson extrapolation convergence against brute-force refinement (many timesteps) for American options with discrete dividends under GBM.
 
+### Dividend call early-ex identification heuristic (from [tools/plot_call_boundary_heuristics_clean.py](tools/plot_call_boundary_heuristics_clean.py))
+
+- Merton 2x2 boundary + “most likely” node markers (high DPI):
+  - Plot: [figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png](figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png)
+  - Data (B_call BS probability-through-time): [figs/b_call_prob_through_time.csv](figs/b_call_prob_through_time.csv)
+
+  ![Dividend call early-ex identification (Merton)](figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png)
+
+  What it shows: rollback-implied American exercise boundaries for CALLs (top row) and PUTs (bottom row) under two scenarios: (A) continuous yield and (B) discrete cash dividends. The default “most likely” marker uses a forward-anchored BS/lognormal proxy probability-through-time. Use `--with-marginal` to additionally compute the COS-digital marginal-probability scan (slower).
+
 ### COS vs FDM time/accuracy tradeoff (from [tools/profile_cos_vs_fdm_time_complexity.py](tools/profile_cos_vs_fdm_time_complexity.py))
 
 - COS vs FDM scalability: [figs/cos_vs_fdm_time_complexity.png](figs/cos_vs_fdm_time_complexity.png)

@@ -18,3 +18,7 @@ Thumbs.db
 
 # Local figure copies
 figs/* - Copy.*
+
+# Temporary / scratch outputs
+tools/_tmp*
+figs/tmp*
