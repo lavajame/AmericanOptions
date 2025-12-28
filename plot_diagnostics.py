@@ -64,7 +64,7 @@ def bs_call(S, K, r, q, vol, T):
     return S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
 
 
-def bs_implied_vol_call(*, price: float, S0: float, K: float, r: float, q: float, T: float, vol_lo: float = 1e-8, vol_hi: float = 2.0, max_hi: float = 8.0) -> float:
+def bs_implied_vol_call(*, price: float, S0: float, K: float, r: float, q: float, T: float, divs: dict | None = None, vol_lo: float = 1e-8, vol_hi: float = 2.0, max_hi: float = 8.0) -> float:
     """Black–Scholes implied vol for a call (spot S0, cont. carry r,q).
 
     Returns 0.0 when the price is at intrinsic within tolerance.
@@ -77,9 +77,21 @@ def bs_implied_vol_call(*, price: float, S0: float, K: float, r: float, q: float
         return 0.0
 
     disc_r = float(np.exp(-r * T))
-    disc_q = float(np.exp(-q * T))
-    intrinsic = max(float(S0) * disc_q - float(K) * disc_r, 0.0)
-    upper = float(S0) * disc_q
+    # If discrete dividends are provided, compute forward via forward_price and use it
+    # to form the discounted forward term F*exp(-rT) which replaces S0*exp(-qT).
+    if divs:
+        try:
+            from american_options.dividends import forward_price
+
+            F = float(forward_price(S0, r, q, T, divs))
+        except Exception:
+            F = float(S0 * np.exp((r - q) * T))
+    else:
+        F = float(S0 * np.exp((r - q) * T))
+
+    disc_forward = float(F * np.exp(-r * T))
+    intrinsic = max(disc_forward - float(K) * disc_r, 0.0)
+    upper = disc_forward
 
     # Tolerances: allow tiny numerical violations.
     if price <= intrinsic + 1e-14:
@@ -88,7 +100,19 @@ def bs_implied_vol_call(*, price: float, S0: float, K: float, r: float, q: float
         return float("nan")
 
     def f(vol: float) -> float:
-        return float(bs_call(float(S0), float(K), float(r), float(q), float(vol), float(T)) - price)
+        # Use forward F and discount to compute Black price adjusted for discrete dividends
+        sigma = float(vol)
+        if sigma <= 0 or T <= 0:
+            # fallback to intrinsic comparison
+            return float(max(disc_forward - float(K) * disc_r, 0.0) - price)
+        df = float(np.exp(-r * T))
+        # d1/d2 using forward F
+        d1 = (np.log(max(F, 1e-300) / float(K)) + 0.5 * sigma ** 2 * T) / (sigma * np.sqrt(T))
+        d2 = d1 - sigma * np.sqrt(T)
+        from scipy.stats import norm
+
+        price_bs = float(df * (F * norm.cdf(d1) - float(K) * norm.cdf(d2)))
+        return float(price_bs - price)
 
     lo = float(vol_lo)
     hi = float(vol_hi)

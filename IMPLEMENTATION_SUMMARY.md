@@ -54,6 +54,29 @@ $$S_{t_e+} = S_{t_e-}\times J,\quad J\in\{u,d\}.$$
 
 ---
 
+## 2025-12-27 — Rollback-Implied Early Exercise Boundaries (COS)
+
+The COS American rollback already decides **exercise vs continuation** at each decision time via
+`max(intrinsic, continuation)` on the internal spot grid. This update exposes the *implied* early
+exercise boundary from that comparison.
+
+### API
+
+- `COSPricer.american_price(..., return_boundary=True)` appends a `(t_grid, boundary)` pair to the outputs.
+   - `t_grid` are the rollback decision times (ascending) on `[0, T)`.
+   - `boundary` has shape `(len(t_grid), nK)`.
+   - Entries can be `NaN` when no exercise region is detected on the grid for that node.
+
+### Heuristic "next exercise" estimate
+
+- `COSPricer.estimate_next_exercise_node_from_boundary(t_grid, boundary, is_call=..., strike_index=...)` returns
+   `(t_star, b_star, dp_star)` using marginal digital probabilities as a crude proxy for where exercise is most likely.
+
+### Notes
+
+- For **American puts**, if you want a dedicated boundary solver (not grid-implied), use
+   `COSPricer.solve_american_put_boundary_eep(...)`.
+
 """
 IMPLEMENTATION COMPLETE: TRAJECTORY CACHING FOR AMERICAN OPTION PRICING
 ========================================================================

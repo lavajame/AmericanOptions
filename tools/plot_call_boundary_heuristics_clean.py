@@ -468,8 +468,8 @@ def main():
         convex_standout_mult=args.conv_standout_mult,
     )
 
-    # Plot 2x2: top row CALLs, bottom row PUTs
-    fig, axes = plt.subplots(2, 2, figsize=(13.6, 9.6), sharex='col')
+    # Plot 2x2: top row CALLs, bottom row PUTs (cube aspect: square subplots)
+    fig, axes = plt.subplots(2, 2, figsize=(10.0, 10.0), sharex='col')
     for i, (res_call, res_put, tag) in enumerate(zip([res_a_call, res_b_call], [res_a_put, res_b_put], ['[A]', '[B]'])):
         case = res_call['case']
         ax_top = axes[0, i]

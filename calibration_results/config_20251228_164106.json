@@ -1,0 +1,114 @@
+{
+  "timestamp": "20251228_164106",
+  "true_model": {
+    "type": "merton_vg",
+    "q": 0.05,
+    "components": [
+      {
+        "type": "merton",
+        "params": {
+          "sigma": 0.15,
+          "lam": 0.5,
+          "muJ": -0.2,
+          "sigmaJ": 0.1
+        }
+      },
+      {
+        "type": "vg",
+        "params": {
+          "theta": -0.2,
+          "sigma": 0.15,
+          "nu": 0.05
+        }
+      }
+    ]
+  },
+  "dividend_schedule": [
+    [
+      0.25,
+      1.0
+    ],
+    [
+      0.5,
+      1.0
+    ],
+    [
+      0.75,
+      2.0
+    ]
+  ],
+  "market": {
+    "S0": 100.0,
+    "r": 0.02
+  },
+  "european_params": {
+    "N": 256,
+    "L": 10.0,
+    "max_iter": 50
+  },
+  "american_params": {
+    "N": 128,
+    "L": 8.0,
+    "steps": 50,
+    "beta": 100.0,
+    "max_iter": 50
+  },
+  "test_models": [
+    "merton",
+    "vg",
+    "kou",
+    "merton_vg"
+  ],
+  "results": {
+    "merton": {
+      "dimension": 5,
+      "parameters": [
+        "q",
+        "Merton.sigma",
+        "Merton.lam",
+        "Merton.muJ",
+        "Merton.sigmaJ"
+      ],
+      "command": "calibrate_cloud_lbfgsb.py --synthetic --synthetic-model merton_vg --case merton_q --div 0.25:0.5:0.0 --div 0.5:1.0:0.0 --div 0.75:1.5:0.0 --european-init --european-N 256 --european-L 10.0 --european-maxiter 50 --american-N 128 --american-L 8.0 --american-steps 50 --american-beta 100.0 --american-maxiter 50",
+      "status": "ready"
+    },
+    "vg": {
+      "dimension": 4,
+      "parameters": [
+        "q",
+        "VG.theta",
+        "VG.sigma",
+        "VG.nu"
+      ],
+      "command": "calibrate_cloud_lbfgsb.py --synthetic --synthetic-model merton_vg --case vg_q --div 0.25:0.5:0.0 --div 0.5:1.0:0.0 --div 0.75:1.5:0.0 --european-init --european-N 256 --european-L 10.0 --european-maxiter 50 --american-N 128 --american-L 8.0 --american-steps 50 --american-beta 100.0 --american-maxiter 50",
+      "status": "ready"
+    },
+    "kou": {
+      "dimension": 6,
+      "parameters": [
+        "q",
+        "Kou.sigma",
+        "Kou.lam",
+        "Kou.p",
+        "Kou.eta1",
+        "Kou.eta2"
+      ],
+      "command": "calibrate_cloud_lbfgsb.py --synthetic --synthetic-model merton_vg --case kou_q --div 0.25:0.5:0.0 --div 0.5:1.0:0.0 --div 0.75:1.5:0.0 --european-init --european-N 256 --european-L 10.0 --european-maxiter 50 --american-N 128 --american-L 8.0 --american-steps 50 --american-beta 100.0 --american-maxiter 50",
+      "status": "ready"
+    },
+    "merton_vg": {
+      "dimension": 7,
+      "parameters": [
+        "q",
+        "Merton.sigma",
+        "Merton.lam",
+        "Merton.muJ",
+        "Merton.sigmaJ",
+        "VG.theta",
+        "VG.nu"
+      ],
+      "command": "calibrate_cloud_lbfgsb.py --synthetic --synthetic-model merton_vg --case merton_vg_q --div 0.25:0.5:0.0 --div 0.5:1.0:0.0 --div 0.75:1.5:0.0 --european-init --european-N 256 --european-L 10.0 --european-maxiter 50 --american-N 128 --american-L 8.0 --american-steps 50 --american-beta 100.0 --american-maxiter 50",
+      "status": "ready"
+    }
+  }
+}

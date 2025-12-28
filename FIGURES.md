@@ -1,6 +1,16 @@
 # Figures and Outputs
 
-This repo generates most of its diagnostics into [figs/](figs/).
+This repo generates most of its diagnostics into [figs/](figs/), now organized into logical subfolders:
+
+```
+figs/
+├── boundaries/                  # Early-exercise boundary analysis
+├── calibration_3d/              # 3D interactive IV fit plots (Plotly/HTML)
+├── calibration_surfaces/        # IV surfaces, slices, and 2D comparisons
+├── american_pricing/            # American option value & continuation diagnostics
+├── levy_models/                 # Lévy model comparisons (MC vs COS)
+└── model_comparison/            # Skew persistence, collinearity, parameters
+```
 
 ## Quick view
 
@@ -12,13 +22,32 @@ If you just want to refresh everything:
 - Run event IV surface plots:
   - Static: `python tools/plot_event_iv_surfaces.py`
   - Interactive (linked 3D): `python tools/make_linked_event_iv_surfaces.py --model vg` (or `--model merton`)
+- **NEW**: Run calibration suite:
+  - Display mode: `python tools/run_calibration.py`
+  - Auto-run: `python tools/run_calibration_auto.py`
+  - Interactive: `python -c "from calibration_explorer import scenario_basic; scenario_basic().run_all()"`
 
 ## Key modeling features
 
 - **Dividend uncertainty**: All uncertain cash dividends are modeled using an inverse Gaussian (IG) process, preserving positivity while allowing intuitive cash-space mean/stdev specification.
 - **CGMY skew persistence**: CGMY's asymmetric tempering (G < M) produces the most persistent skew and smile across maturities, especially on the call wing, making it ideal for mixing short-dated and long-dated calibrations.
+- **Linked parameters in combo models**: Merton+VG and Kou+VG models share sigma parameter across components, reducing dimension (merton_vg: 7 parameters, kou_vg: 8 parameters).
+- **3D interactive IV plots**: Calibration output generated as rotatable Plotly HTML plots showing target vs fitted IV surfaces.
 
-## Static PNG figures
+## Calibration suite (NEW - Dec 2025)
+
+### 3D Interactive IV Fit Plots ([figs/calibration_3d/](figs/calibration_3d/))
+
+All generated via `calibrate_cloud_lbfgsb.py` with `--iv-plot-3d-html-out` flag:
+
+- [figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html](figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html) — Merton+VG generating → Merton+q calibration
+- [figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html) — Merton+VG generating → Kou+q calibration (cross-model)
+- [figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html](figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html) — CGMY+VG → Merton+q (infinite-activity model)
+- [figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html](figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html) — Kou+VG → CGMY+q (jump vs infinite-activity)
+
+**Features**: Red hollow circles (target prices), blue crosses (fitted prices), interactive rotation/zoom, hover data showing strike, maturity, moneyness, IV.
+
+### Static PNG figures
 
 ### COS / dividends / American diagnostics (from [plot_diagnostics.py](plot_diagnostics.py))
 
@@ -145,9 +174,21 @@ If you just want to refresh everything:
 
 These are real interactive Plotly plots (pan/zoom/rotate), not images:
 
-- Linked 3D surfaces (GBM vs VG): [figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html](figs/event_iv_surfaces_gbm_vs_vg_linked_3d.html)
-- Linked 3D surfaces (GBM vs Merton): [figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html](figs/event_iv_surfaces_gbm_vs_merton_linked_3d.html)
-- Linked 3D surfaces (GBM vs Kou+VG composite): [figs/event_iv_surfaces_gbm_vs_kouvg_linked_3d.html](figs/event_iv_surfaces_gbm_vs_kouvg_linked_3d.html)
+### Calibration 3D scatter plots (NEW - Dec 2025)
+
+**Synthetic calibration with SLSQP optimizer**:
+- [figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html](figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html) — Self-calibration benchmark
+- [figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html) — Cross-model fit (Merton+VG → Kou)
+- [figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html](figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html) — Infinite-activity model (CGMY+VG → Merton)
+- [figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html](figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html) — Jump vs infinite-activity comparison
+
+All generated via synthetic calibration pipeline with SLSQP optimizer, sensitivities via COS-American analytic gradients. **Linked sigma parameters** in combo models reduce dimension (merton_vg: 7 params, kou_vg: 8 params).
+
+### Event IV surfaces (3D interactive)
+
+- Linked 3D surfaces (GBM vs VG): [figs/calibration_3d/event_iv_surfaces_gbm_vs_vg_linked_3d.html](figs/calibration_3d/event_iv_surfaces_gbm_vs_vg_linked_3d.html)
+- Linked 3D surfaces (GBM vs Merton): [figs/calibration_3d/event_iv_surfaces_gbm_vs_merton_linked_3d.html](figs/calibration_3d/event_iv_surfaces_gbm_vs_merton_linked_3d.html)
+- Linked 3D surfaces (GBM vs Kou+VG composite): [figs/calibration_3d/event_iv_surfaces_gbm_vs_kouvg_linked_3d.html](figs/calibration_3d/event_iv_surfaces_gbm_vs_kouvg_linked_3d.html)
 
 Generated by: [tools/make_linked_event_iv_surfaces.py](tools/make_linked_event_iv_surfaces.py)
 

@@ -543,7 +543,14 @@ class CompositeLevyCHF(CharacteristicFunction):
         # Martingale drift correction from combined exponent.
         # psi(-i) should be real for valid parameter sets; strip tiny numerical imaginary parts.
         psi_minus_i = complex(self._psi_unit(-1j))
-        psi_minus_i_real = float(np.real_if_close(psi_minus_i, tol=1e6))
+        # np.real_if_close can still return a complex scalar if the imaginary part is not tiny
+        # relative to the real part, which would break float(...) conversion.
+        tol = 1e-10 * (1.0 + abs(psi_minus_i.real))
+        if not np.isfinite(psi_minus_i.real) or not np.isfinite(psi_minus_i.imag) or abs(psi_minus_i.imag) > tol:
+            raise ValueError(
+                f"Invalid composite params: psi(-i) is not real (psi(-i)={psi_minus_i})"
+            )
+        psi_minus_i_real = float(psi_minus_i.real)
         mu = np.log(self.S0) + (self.r - self.q) * T + sum_log - psi_minus_i_real * T
         mu = float(np.real_if_close(mu, tol=1e6))
 

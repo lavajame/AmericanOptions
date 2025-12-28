@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Dict, Hashable, Iterable, Optional, Tuple
+from typing import Any, Callable, Dict, Hashable, Iterable, Optional, Tuple
 
 import numpy as np
 
@@ -27,6 +27,17 @@ class COSPricer:
         self.N = int(N)
         self.L = float(L)
         self.M = int(M) if M is not None else max(2 * self.N, 512)
+
+        # Interpolation used for dividend/event shift mappings on the x_grid.
+        # Default is linear (robust). Options:
+        #   - 'linear'
+        #   - 'pchip' (shape-preserving monotone cubic Hermite; recommended if you want smaller M)
+        #   - 'cubic' (Catmull–Rom; can overshoot near kinks)
+        params = getattr(model, "params", None)
+        if isinstance(params, dict):
+            self.shift_interp = str(params.get("shift_interp", "linear")).lower().strip()
+        else:
+            self.shift_interp = "linear"
 
     @staticmethod
     def _float_key(x: float, ndp: int = 14) -> float:
@@ -94,22 +105,92 @@ class COSPricer:
         )
 
     @staticmethod
-    def _build_shift_operator(x_grid: np.ndarray, shift: float) -> Dict[str, np.ndarray]:
-        """Precompute interpolation indices/weights for y(x+shift) on the x_grid."""
+    def _build_shift_operator(x_grid: np.ndarray, shift: float, *, kind: str = "linear") -> Dict[str, np.ndarray]:
+        """Precompute interpolation indices/weights for y(x+shift) on the x_grid.
+
+        Parameters
+        ----------
+        x_grid:
+            1D monotone increasing grid in log-space.
+        shift:
+            Log-shift applied to the argument: evaluate y(x + shift).
+        kind:
+            'linear' (default), 'pchip' (shape-preserving monotone cubic Hermite),
+            or 'cubic' (Catmull–Rom on 4 neighboring points).
+
+        Notes
+        -----
+        - Linear is monotone/robust near kinks.
+                - PCHIP is shape-preserving on monotone data and avoids overshoot.
+                - Catmull–Rom can reduce error for smooth regions, but may overshoot near sharp
+                    kinks; we fall back to linear near the domain edges.
+        """
         x_grid = np.asarray(x_grid, dtype=float)
+        kind = str(kind).lower().strip()
         xq = x_grid + float(shift)
 
-        idx = np.searchsorted(x_grid, xq, side="right") - 1
-        idx = np.clip(idx, 0, len(x_grid) - 2)
-        x0 = x_grid[idx]
-        x1 = x_grid[idx + 1]
-        wgt = (xq - x0) / (x1 - x0)
+        idx_lin = np.searchsorted(x_grid, xq, side="right") - 1
+        idx_lin = np.clip(idx_lin, 0, len(x_grid) - 2)
+        x0 = x_grid[idx_lin]
+        x1 = x_grid[idx_lin + 1]
+        denom = (x1 - x0)
+        wgt_lin = (xq - x0) / denom
 
         left_mask = xq <= x_grid[0]
         right_mask = xq >= x_grid[-1]
+
+        if kind == "linear" or len(x_grid) < 4:
+            return {
+                "kind": "linear",
+                "idx": idx_lin.astype(np.int64, copy=False),
+                "wgt": wgt_lin.astype(float, copy=False),
+                "left_mask": left_mask,
+                "right_mask": right_mask,
+            }
+
+        if kind == "pchip":
+            # PCHIP needs node-derivatives computed from values at apply-time, but the
+            # query cell indices and local coordinates (t in [0,1]) are value-independent.
+            h = float(x_grid[1] - x_grid[0])
+            return {
+                "kind": "pchip",
+                "idx": idx_lin.astype(np.int64, copy=False),
+                "t": wgt_lin.astype(float, copy=False),
+                "h": h,
+                "left_mask": left_mask,
+                "right_mask": right_mask,
+            }
+
+        # Fall back to Catmull–Rom cubic.
+        kind = "cubic"
+
+        # Cubic Catmull–Rom interpolation on uniform-ish grids.
+        # Use linear fallback near edges where idx-1 or idx+2 is out of range.
+        idx_c = np.clip(idx_lin, 1, len(x_grid) - 3)
+        edge_mask = (idx_lin < 1) | (idx_lin > (len(x_grid) - 3))
+        xc0 = x_grid[idx_c]
+        xc1 = x_grid[idx_c + 1]
+        tc = (xq - xc0) / (xc1 - xc0)
+
+        t = tc.astype(float, copy=False)
+        t2 = t * t
+        t3 = t2 * t
+
+        w0 = (-0.5 * t + 1.0 * t2 - 0.5 * t3)
+        w1 = (1.0 - 2.5 * t2 + 1.5 * t3)
+        w2 = (0.5 * t + 2.0 * t2 - 1.5 * t3)
+        w3 = (-0.5 * t2 + 0.5 * t3)
+
         return {
-            "idx": idx.astype(np.int64, copy=False),
-            "wgt": wgt.astype(float, copy=False),
+            "kind": "cubic",
+            "idx_lin": idx_lin.astype(np.int64, copy=False),
+            "wgt_lin": wgt_lin.astype(float, copy=False),
+            "idx": idx_c.astype(np.int64, copy=False),
+            "w0": w0.astype(float, copy=False),
+            "w1": w1.astype(float, copy=False),
+            "w2": w2.astype(float, copy=False),
+            "w3": w3.astype(float, copy=False),
+            "edge_mask": edge_mask,
             "left_mask": left_mask,
             "right_mask": right_mask,
         }
@@ -121,12 +202,101 @@ class COSPricer:
         if vals.ndim == 1:
             vals = vals[None, :]
 
-        idx = op["idx"]
-        wgt = op["wgt"]
+        kind = str(op.get("kind", "linear")).lower().strip()
         left_mask = op["left_mask"]
         right_mask = op["right_mask"]
 
-        out = (1.0 - wgt)[None, :] * vals[:, idx] + wgt[None, :] * vals[:, idx + 1]
+        if kind == "linear":
+            idx = op["idx"]
+            wgt = op["wgt"]
+            out = (1.0 - wgt)[None, :] * vals[:, idx] + wgt[None, :] * vals[:, idx + 1]
+        elif kind == "pchip":
+            # Shape-preserving monotone cubic Hermite interpolation (PCHIP).
+            # Assumes uniform x_grid (true in this engine: x_grid=linspace(a,b,M)).
+            idx = op["idx"]
+            t = op["t"]
+            h = float(op["h"])
+
+            # Compute node derivatives per row using the Fritsch–Carlson method.
+            # vals is shape (nK, M)
+            nK, m = vals.shape
+            if m < 2:
+                out = vals.copy()
+            else:
+                delta = (vals[:, 1:] - vals[:, :-1]) / max(h, 1e-300)  # (nK, m-1)
+                d = np.zeros((nK, m), dtype=float)
+
+                if m == 2:
+                    d[:, 0] = delta[:, 0]
+                    d[:, 1] = delta[:, 0]
+                else:
+                    # Interior nodes
+                    d0 = delta[:, :-1]
+                    d1 = delta[:, 1:]
+                    prod = d0 * d1
+                    hm = np.zeros_like(prod)
+                    mask = prod > 0.0
+                    hm[mask] = (2.0 * d0[mask] * d1[mask]) / (d0[mask] + d1[mask])
+                    d[:, 1:-1] = hm
+
+                    # Endpoints (standard PCHIP endpoint formula with limiting)
+                    d_left = (2.0 * delta[:, 0] - delta[:, 1])
+                    # If d_left has wrong sign, set to 0. If it is too large in magnitude, cap.
+                    wrong = (d_left * delta[:, 0]) <= 0.0
+                    d_left[wrong] = 0.0
+                    cap = (delta[:, 0] * delta[:, 1] < 0.0) & (np.abs(d_left) > 3.0 * np.abs(delta[:, 0]))
+                    d_left[cap] = 3.0 * delta[:, 0][cap]
+                    d[:, 0] = d_left
+
+                    d_right = (2.0 * delta[:, -1] - delta[:, -2])
+                    wrong = (d_right * delta[:, -1]) <= 0.0
+                    d_right[wrong] = 0.0
+                    cap = (delta[:, -1] * delta[:, -2] < 0.0) & (np.abs(d_right) > 3.0 * np.abs(delta[:, -1]))
+                    d_right[cap] = 3.0 * delta[:, -1][cap]
+                    d[:, -1] = d_right
+
+                # Evaluate cubic Hermite on each query point.
+                # Hermite basis
+                tt = t.astype(float, copy=False)
+                tt2 = tt * tt
+                tt3 = tt2 * tt
+                h00 = (2.0 * tt3 - 3.0 * tt2 + 1.0)
+                h10 = (tt3 - 2.0 * tt2 + tt)
+                h01 = (-2.0 * tt3 + 3.0 * tt2)
+                h11 = (tt3 - tt2)
+
+                y0 = vals[:, idx]
+                y1 = vals[:, idx + 1]
+                m0 = d[:, idx]
+                m1 = d[:, idx + 1]
+
+                out = (
+                    h00[None, :] * y0
+                    + h10[None, :] * (max(h, 1e-300) * m0)
+                    + h01[None, :] * y1
+                    + h11[None, :] * (max(h, 1e-300) * m1)
+                )
+        else:
+            idx = op["idx"]
+            w0 = op["w0"]
+            w1 = op["w1"]
+            w2 = op["w2"]
+            w3 = op["w3"]
+            edge_mask = op["edge_mask"]
+
+            out = (
+                w0[None, :] * vals[:, idx - 1]
+                + w1[None, :] * vals[:, idx]
+                + w2[None, :] * vals[:, idx + 1]
+                + w3[None, :] * vals[:, idx + 2]
+            )
+
+            # Linear fallback near edges
+            if np.any(edge_mask):
+                idx_lin = op["idx_lin"]
+                wgt_lin = op["wgt_lin"]
+                out[:, edge_mask] = (1.0 - wgt_lin[edge_mask])[None, :] * vals[:, idx_lin[edge_mask]] + wgt_lin[edge_mask][None, :] * vals[:, idx_lin[edge_mask] + 1]
+
         if np.any(left_mask):
             out[:, left_mask] = vals[:, 0][:, None]
         if np.any(right_mask):
@@ -215,13 +385,13 @@ class COSPricer:
             t_div = float(t_div)
             if 0.0 < t_div <= float(T) and float(m) > 0.0:
                 shift = float(np.log(max(1.0 - float(m), 1e-12)))
-                div_shift_ops_by_time[t_div] = self._build_shift_operator(x_grid, shift)
+                div_shift_ops_by_time[t_div] = self._build_shift_operator(x_grid, shift, kind=self.shift_interp)
 
         evt_ops = None
         if event is not None and evt_time is not None and 0.0 < evt_time <= float(T):
             evt_ops = (
-                self._build_shift_operator(x_grid, float(event.u_log_eff)),
-                self._build_shift_operator(x_grid, float(event.d_log_eff)),
+                self._build_shift_operator(x_grid, float(event.u_log_eff), kind=self.shift_interp),
+                self._build_shift_operator(x_grid, float(event.d_log_eff), kind=self.shift_interp),
             )
 
         # Precompute per-step increment CFs + discount.
@@ -1387,7 +1557,28 @@ class COSPricer:
         mat_sum = np.sum(weights * re_phi * Vk, axis=0)
         return np.exp(-self.model.r * T) * mat_sum
 
-    def american_price(self, K: np.ndarray, T: float, steps: int = 50, is_call: bool | np.ndarray = True, beta: float = 20.0, use_softmax: bool = False, return_european: bool = False, return_trajectory: bool = False, return_continuation_trajectory: bool = False, rollback_debug: bool = False, diagnostics_file: str = None, event: DiscreteEventJump | None = None, return_sensitivities: bool = False, sens_method: str = "analytic", sens_params: list[str] | None = None):
+    def american_price(
+        self,
+        K: np.ndarray,
+        T: float,
+        steps: int = 50,
+        is_call: bool | np.ndarray = True,
+        beta: float = 20.0,
+        use_softmax: bool = False,
+        return_european: bool = False,
+        return_trajectory: bool = False,
+        return_continuation_trajectory: bool = False,
+        return_boundary: bool = False,
+        rollback_debug: bool = False,
+        diagnostics_file: str = None,
+        event: DiscreteEventJump | None = None,
+        return_sensitivities: bool = False,
+        sens_method: str = "analytic",
+        sens_params: list[str] | None = None,
+        *,
+        return_grid_snapshot: bool = False,
+        snapshot_time: float | None = None,
+    ):
         """COS-based backward induction for American options.
 
         - Maintain coefficients across steps.
@@ -1407,7 +1598,7 @@ class COSPricer:
         if is_call_arr.ndim > 0 and is_call_arr.size not in (0, 1):
             if is_call_arr.shape[0] != K.shape[0]:
                 raise ValueError("If is_call is an array, it must match K shape")
-            if return_trajectory or return_continuation_trajectory or return_european:
+            if return_trajectory or return_continuation_trajectory or return_european or return_boundary:
                 raise ValueError("Mixed is_call with trajectory/european outputs is not supported")
             out = np.empty_like(K, dtype=float)
             call_mask = is_call_arr.astype(bool)
@@ -1492,6 +1683,7 @@ class COSPricer:
 
         trajectory_cache = [] if return_trajectory else None
         cont_trajectory_cache = [] if return_continuation_trajectory else None
+        boundary_nodes: list[tuple[float, np.ndarray]] | None = [] if return_boundary else None
 
         # For calls with no discrete dividends and non-positive continuous yield,
         # early exercise is not optimal in standard models, so American == European.
@@ -1573,6 +1765,12 @@ class COSPricer:
         sum_log_up_to = ctx["sum_log_up_to"]
         ix0 = int(ctx["ix0"])
         wgt0 = float(ctx["wgt0"])
+
+        # Optional diagnostics snapshot (for inspecting the value function on x_grid).
+        grid_snapshot = None
+        snapshot_time_val = None if snapshot_time is None else float(snapshot_time)
+        # Tolerance tied to the nominal step, but always at least 1e-12.
+        snapshot_tol = float(max(1e-12, 1e-10 * float(ctx.get("dt_nominal", 1.0))))
 
         # Terminal payoff on grid for all strikes (shape: (nK, M))
         Kcol = K.reshape((-1, 1))
@@ -1656,8 +1854,216 @@ class COSPricer:
 
             remaining_tau = float(T) - t_current
 
+            # Optional: when returning boundaries, refine the boundary location by doing
+            # a local root-find in log-space x for g(x)=intrinsic(x)-continuation(x)
+            # around the sign-change cell. This improves boundary accuracy for small M
+            # without changing the rollback grid used for pricing.
+            cont_eval_at_x: Callable[[int, float], float] | None = None
+            if return_boundary and boundary_nodes is not None:
+                # Base (pre-div/event mapping) continuation evaluation from coefficients.
+                # cont_pre_j(x) = disc_dt * sum_k coeffs_mod[k,j] * (re_phi[k]*cos(u_k*(x-a)) - im_phi[k]*sin(u_k*(x-a)))
+                # where u_k = k*pi/(b-a).
+                u_vec = np.asarray(u, dtype=float)
+                re_phi_vec = np.asarray(re_phi, dtype=float)
+                im_phi_vec = np.asarray(im_phi, dtype=float)
+
+                def _cont_pre_at_x(j: int, x: float) -> float:
+                    theta = u_vec * (float(x) - float(a))
+                    c = coeffs_mod[:, int(j)]
+                    return float(disc_dt) * float(np.sum(c * (re_phi_vec * np.cos(theta) - im_phi_vec * np.sin(theta))))
+
+                def _shift_eval(val_fn: Callable[[int, float], float], j: int, x: float, shift: float) -> float:
+                    xq = float(x) + float(shift)
+                    if xq <= float(a):
+                        return float(val_fn(j, float(a)))
+                    if xq >= float(b):
+                        return 0.0
+                    return float(val_fn(j, xq))
+
+                # Match the exact mapping order applied to cont on-grid: dividend shift then event mapping.
+                mapped_fn: Callable[[int, float], float] = _cont_pre_at_x
+
+                # Dividend mapping at this step (if any)
+                shift_div = None
+                for t_div, (m, _std) in self.model.divs.items():
+                    if abs(float(t_div) - float(t_current)) <= div_tol and float(m) > 0.0:
+                        shift_div = float(np.log(max(1.0 - float(m), 1e-12)))
+                        break
+                if shift_div is not None:
+                    prev_fn = mapped_fn
+
+                    def mapped_fn(j: int, x: float, *, _prev=prev_fn, _sd=shift_div) -> float:
+                        return _shift_eval(_prev, j, x, _sd)
+
+                # Discrete event mapping at this step (if any)
+                if event is not None and evt_time is not None and abs(evt_time - t_current) <= evt_tol:
+                    prev_fn = mapped_fn
+                    p_evt = float(event.p)
+                    u_shift = float(event.u_log_eff)
+                    d_shift = float(event.d_log_eff)
+
+                    def mapped_fn(j: int, x: float, *, _prev=prev_fn, _p=p_evt, _us=u_shift, _ds=d_shift) -> float:
+                        return _p * _shift_eval(_prev, j, x, _us) + (1.0 - _p) * _shift_eval(_prev, j, x, _ds)
+
+                cont_eval_at_x = mapped_fn
+
+            def _boundary_from_value_matching(
+                S: np.ndarray,
+                intrinsic_nm: np.ndarray,
+                cont_nm: np.ndarray,
+                *,
+                exercise_at_low_spot: bool,
+            ) -> np.ndarray:
+                """Return per-row boundary spot where intrinsic == continuation.
+
+                Parameters
+                ----------
+                S:
+                    1D spot grid (ascending).
+                intrinsic_nm, cont_nm:
+                    Arrays shaped (nK, M).
+                exercise_at_low_spot:
+                    True for puts (exercise region at low S), False for calls.
+
+                Returns
+                -------
+                boundary:
+                    1D array length nK. NaN means 'no exercise region on grid'.
+                """
+                S = np.asarray(S, dtype=float)
+                g = np.asarray(intrinsic_nm, dtype=float) - np.asarray(cont_nm, dtype=float)
+                if g.ndim == 1:
+                    g = g[None, :]
+                nK, m = g.shape
+                mask = (g >= 0.0)
+                out_b = np.full((nK,), np.nan, dtype=float)
+
+                # Helper: refine boundary in x using bisection if a continuation evaluator is available.
+                def _refine_in_x(j: int, idx_lo: int, idx_hi: int, *, call_like: bool) -> float | None:
+                    if cont_eval_at_x is None:
+                        return None
+                    if idx_lo < 0 or idx_hi >= m or idx_lo >= idx_hi:
+                        return None
+
+                    x_lo = float(x_grid[idx_lo])
+                    x_hi = float(x_grid[idx_hi])
+                    K_j = float(Kcol[int(j), 0])
+                    pvK = float(K_j * np.exp(-self.model.r * remaining_tau))
+
+                    # For parity-call path, continuation is cont_call(x) = cont_put(x) + spot_adj(x) - pvK.
+                    # For direct-call-with-divs path, continuation is already in call-space, so the caller
+                    # supplies cont_nm accordingly and call_like=True will use intrinsic S-K and cont_eval_at_x.
+                    def _g_at_x(x: float) -> float:
+                        Sx = float(np.exp(x))
+                        if call_like:
+                            intrinsic_x = Sx - K_j
+                            # Determine whether cont_nm is call continuation. In the parity case, we must add spot_adj.
+                            if (not direct_call_with_divs) and bool(is_call):
+                                sum_log_rem = float(sum_log_total - float(sum_log_up_to.get(float(t_current), 0.0)))
+                                spot_mult = float(np.exp(-self.model.q * remaining_tau + sum_log_rem))
+                                if event is not None and evt_time is not None and (not event.ensure_martingale):
+                                    if float(t_current) < float(evt_time) <= float(T):
+                                        spot_mult *= float(event.mean_factor)
+                                cont_x = float(cont_eval_at_x(int(j), float(x))) + (Sx * spot_mult) - pvK
+                            else:
+                                cont_x = float(cont_eval_at_x(int(j), float(x)))
+                            return float(intrinsic_x - cont_x)
+                        else:
+                            intrinsic_x = K_j - Sx
+                            cont_x = float(cont_eval_at_x(int(j), float(x)))
+                            return float(intrinsic_x - cont_x)
+
+                    g_lo = _g_at_x(x_lo)
+                    g_hi = _g_at_x(x_hi)
+
+                    # Ensure we have a bracket. If not, fall back to grid interpolation.
+                    if not (np.isfinite(g_lo) and np.isfinite(g_hi)):
+                        return None
+                    if g_lo == 0.0:
+                        return float(np.exp(x_lo))
+                    if g_hi == 0.0:
+                        return float(np.exp(x_hi))
+                    if g_lo * g_hi > 0.0:
+                        return None
+
+                    # Bisection in x.
+                    xl, xh = x_lo, x_hi
+                    gl, gh = g_lo, g_hi
+                    for _ in range(60):
+                        xm = 0.5 * (xl + xh)
+                        gm = _g_at_x(xm)
+                        if not np.isfinite(gm):
+                            break
+                        if abs(xh - xl) <= 1e-12:
+                            return float(np.exp(xm))
+                        if gm == 0.0:
+                            return float(np.exp(xm))
+                        if gl * gm <= 0.0:
+                            xh, gh = xm, gm
+                        else:
+                            xl, gl = xm, gm
+                    return float(np.exp(0.5 * (xl + xh)))
+
+                if exercise_at_low_spot:
+                    any_ex = np.any(mask, axis=1)
+                    # last index where mask is True (exercise optimal)
+                    rev = mask[:, ::-1]
+                    last_true = (m - 1) - np.argmax(rev, axis=1)
+                    for j in range(nK):
+                        if not bool(any_ex[j]):
+                            continue
+                        idx = int(last_true[j])
+                        if idx >= m - 1:
+                            out_b[j] = float(S[-1])
+                            continue
+                        refined = _refine_in_x(j, idx, idx + 1, call_like=False)
+                        if refined is not None:
+                            out_b[j] = float(refined)
+                            continue
+                        # Fallback: linear interpolation in spot.
+                        g0 = float(g[j, idx])
+                        g1 = float(g[j, idx + 1])
+                        x0 = float(S[idx])
+                        x1 = float(S[idx + 1])
+                        denom = (g1 - g0)
+                        if abs(denom) <= 1e-16:
+                            out_b[j] = x0
+                        else:
+                            out_b[j] = x0 + (0.0 - g0) * (x1 - x0) / denom
+                else:
+                    any_ex = np.any(mask, axis=1)
+                    first_true = np.argmax(mask, axis=1)
+                    for j in range(nK):
+                        if not bool(any_ex[j]):
+                            continue
+                        idx = int(first_true[j])
+                        if idx <= 0:
+                            out_b[j] = float(S[0])
+                            continue
+                        refined = _refine_in_x(j, idx - 1, idx, call_like=True)
+                        if refined is not None:
+                            out_b[j] = float(refined)
+                            continue
+                        # Fallback: linear interpolation in spot.
+                        g0 = float(g[j, idx - 1])
+                        g1 = float(g[j, idx])
+                        x0 = float(S[idx - 1])
+                        x1 = float(S[idx])
+                        denom = (g1 - g0)
+                        if abs(denom) <= 1e-16:
+                            out_b[j] = x1
+                        else:
+                            out_b[j] = x0 + (0.0 - g0) * (x1 - x0) / denom
+
+                return out_b
+
             if direct_call_with_divs:
                 intrinsic = S_grid.reshape((1, -1)) - Kcol
+
+                if return_boundary and boundary_nodes is not None:
+                    bnd = _boundary_from_value_matching(S_grid, intrinsic, cont, exercise_at_low_spot=False)
+                    boundary_nodes.append((float(t_current), bnd))
+
                 if use_softmax:
                     V_prev = numerics.SOFTMAX_FN(intrinsic, cont, beta)
                     if return_sensitivities:
@@ -1678,6 +2084,22 @@ class COSPricer:
                         d_cont[p] = dVp
                 V_prev_call = V_prev
 
+                # Snapshot after exercise decision (call space)
+                if (
+                    return_grid_snapshot
+                    and grid_snapshot is None
+                    and (snapshot_time_val is None or abs(float(t_current) - snapshot_time_val) <= snapshot_tol)
+                ):
+                    grid_snapshot = {
+                        "t": float(t_current),
+                        "x_grid": np.asarray(x_grid, dtype=float).copy(),
+                        "S_grid": np.asarray(S_grid, dtype=float).copy(),
+                        "intrinsic": np.asarray(intrinsic[0], dtype=float).copy(),
+                        "continuation": np.asarray(cont[0], dtype=float).copy(),
+                        "value": np.asarray(V_prev_call[0], dtype=float).copy(),
+                        "space": "call",
+                    }
+
             elif is_call:
                 # Convert put-continuation to call-continuation via parity
                 sum_log_rem = float(sum_log_total - float(sum_log_up_to.get(float(t_current), 0.0)))
@@ -1688,6 +2110,11 @@ class COSPricer:
 
                 cont_call = cont + spot_adj.reshape((1, -1)) - Kcol * float(np.exp(-self.model.r * remaining_tau))
                 intrinsic = S_grid.reshape((1, -1)) - Kcol
+
+                if return_boundary and boundary_nodes is not None:
+                    bnd = _boundary_from_value_matching(S_grid, intrinsic, cont_call, exercise_at_low_spot=False)
+                    boundary_nodes.append((float(t_current), bnd))
+
                 if use_softmax:
                     V_prev_call = numerics.SOFTMAX_FN(intrinsic, cont_call, beta)
                     if return_sensitivities:
@@ -1702,6 +2129,22 @@ class COSPricer:
                 # Reproject back to put-space (parity)
                 V_prev = V_prev_call - spot_adj.reshape((1, -1)) + Kcol * float(np.exp(-self.model.r * remaining_tau))
 
+                # Snapshot after exercise decision (call space) using cont_call
+                if (
+                    return_grid_snapshot
+                    and grid_snapshot is None
+                    and (snapshot_time_val is None or abs(float(t_current) - snapshot_time_val) <= snapshot_tol)
+                ):
+                    grid_snapshot = {
+                        "t": float(t_current),
+                        "x_grid": np.asarray(x_grid, dtype=float).copy(),
+                        "S_grid": np.asarray(S_grid, dtype=float).copy(),
+                        "intrinsic": np.asarray(intrinsic[0], dtype=float).copy(),
+                        "continuation": np.asarray(cont_call[0], dtype=float).copy(),
+                        "value": np.asarray(V_prev_call[0], dtype=float).copy(),
+                        "space": "call",
+                    }
+
                 if return_sensitivities:
                     w_pos = (V_prev_call > 0.0).astype(float)
                     for p in sens_params_eff:
@@ -1710,6 +2153,11 @@ class COSPricer:
                         d_cont[p] = dVcall
             else:
                 intrinsic = Kcol - S_grid.reshape((1, -1))
+
+                if return_boundary and boundary_nodes is not None:
+                    bnd = _boundary_from_value_matching(S_grid, intrinsic, cont, exercise_at_low_spot=True)
+                    boundary_nodes.append((float(t_current), bnd))
+
                 if use_softmax:
                     V_prev = numerics.SOFTMAX_FN(intrinsic, cont, beta)
                     if return_sensitivities:
@@ -1726,6 +2174,22 @@ class COSPricer:
                         dVp = w_cont * d_cont[p]
                         dVp = w_pos * dVp
                         d_cont[p] = dVp
+
+                # Snapshot after exercise decision (put space)
+                if (
+                    return_grid_snapshot
+                    and grid_snapshot is None
+                    and (snapshot_time_val is None or abs(float(t_current) - snapshot_time_val) <= snapshot_tol)
+                ):
+                    grid_snapshot = {
+                        "t": float(t_current),
+                        "x_grid": np.asarray(x_grid, dtype=float).copy(),
+                        "S_grid": np.asarray(S_grid, dtype=float).copy(),
+                        "intrinsic": np.asarray(intrinsic[0], dtype=float).copy(),
+                        "continuation": np.asarray(cont[0], dtype=float).copy(),
+                        "value": np.asarray(V_prev[0], dtype=float).copy(),
+                        "space": "put",
+                    }
 
             # Cache trajectories at S0 for the first strike only
             if (return_trajectory or return_continuation_trajectory):
@@ -1758,6 +2222,56 @@ class COSPricer:
 
         val0 = (1.0 - wgt0) * V0_grid[:, ix0] + wgt0 * V0_grid[:, ix0 + 1]
 
+        # If a snapshot was requested but not captured inside the loop (e.g. snapshot_time=0.0),
+        # provide a t=0 snapshot from the reconstructed grid in the appropriate space.
+        if return_grid_snapshot and grid_snapshot is None and (snapshot_time_val is None or abs(0.0 - snapshot_time_val) <= snapshot_tol):
+            if direct_call_with_divs or bool(is_call):
+                # V0_grid is in put-space for parity path; reconstruct call-space value for diagnostics.
+                if direct_call_with_divs:
+                    V0_diag = V0_grid
+                    intrinsic0 = np.maximum(S_grid.reshape((1, -1)) - Kcol, 0.0)
+                    grid_snapshot = {
+                        "t": 0.0,
+                        "x_grid": np.asarray(x_grid, dtype=float).copy(),
+                        "S_grid": np.asarray(S_grid, dtype=float).copy(),
+                        "intrinsic": np.asarray((S_grid - float(K[0])), dtype=float).copy(),
+                        "continuation": np.asarray(V0_diag[0], dtype=float).copy(),
+                        "value": np.asarray(V0_diag[0], dtype=float).copy(),
+                        "space": "call",
+                    }
+                else:
+                    # Build call-space value at t=0 from parity using the known forward adjustment.
+                    forward_adj = float(self.model.S0 * np.exp(-self.model.q * T + sum_log_total))
+                    if event is not None and 0.0 < float(event.time) <= float(T) and not event.ensure_martingale:
+                        forward_adj *= float(event.mean_factor)
+                    # At t=0, remaining_tau = T.
+                    spot_adj0 = S_grid * np.exp(-self.model.q * T + sum_log_total)
+                    if event is not None and evt_time is not None and not event.ensure_martingale:
+                        if 0.0 < float(evt_time) <= float(T):
+                            spot_adj0 = spot_adj0 * float(event.mean_factor)
+                    cont_call0 = V0_grid + spot_adj0.reshape((1, -1)) - Kcol * float(np.exp(-self.model.r * T))
+                    V_call0 = np.maximum(S_grid.reshape((1, -1)) - Kcol, cont_call0)
+                    grid_snapshot = {
+                        "t": 0.0,
+                        "x_grid": np.asarray(x_grid, dtype=float).copy(),
+                        "S_grid": np.asarray(S_grid, dtype=float).copy(),
+                        "intrinsic": np.asarray((S_grid - float(K[0])), dtype=float).copy(),
+                        "continuation": np.asarray(cont_call0[0], dtype=float).copy(),
+                        "value": np.asarray(V_call0[0], dtype=float).copy(),
+                        "space": "call",
+                    }
+            else:
+                # Put space
+                grid_snapshot = {
+                    "t": 0.0,
+                    "x_grid": np.asarray(x_grid, dtype=float).copy(),
+                    "S_grid": np.asarray(S_grid, dtype=float).copy(),
+                    "intrinsic": np.asarray((float(K[0]) - S_grid), dtype=float).copy(),
+                    "continuation": np.asarray(V0_grid[0], dtype=float).copy(),
+                    "value": np.asarray(V0_grid[0], dtype=float).copy(),
+                    "space": "put",
+                }
+
         if return_sensitivities:
             d_val0: dict[str, np.ndarray] = {}
             for p in sens_params_eff:
@@ -1786,6 +2300,13 @@ class COSPricer:
         if return_continuation_trajectory and cont_trajectory_cache is not None:
             cont_trajectory_cache.sort(key=lambda z: z[0])
 
+        boundary_curve = None
+        if return_boundary and boundary_nodes is not None:
+            boundary_nodes.sort(key=lambda z: z[0])
+            t_bnd = np.array([t for t, _b in boundary_nodes], dtype=float)
+            bnd_mat = np.vstack([np.asarray(b, dtype=float).reshape((1, -1)) for _t, b in boundary_nodes])
+            boundary_curve = (t_bnd, bnd_mat)
+
         out = [prices]
         if return_european:
             out.append(euro_prices)
@@ -1793,7 +2314,88 @@ class COSPricer:
             out.append(trajectory_cache)
         if return_continuation_trajectory:
             out.append(cont_trajectory_cache)
+        if return_boundary:
+            out.append(boundary_curve)
+        if return_grid_snapshot:
+            out.append(grid_snapshot)
         return out[0] if len(out) == 1 else tuple(out)
+
+    def estimate_next_exercise_node_from_boundary(
+        self,
+        t_grid: np.ndarray,
+        boundary: np.ndarray,
+        *,
+        is_call: bool,
+        strike_index: int = 0,
+        spot: float | None = None,
+    ) -> tuple[float, float, float]:
+        """Heuristic: pick a 'most likely next exercise node' from a boundary curve.
+
+        This is *not* a first-passage / optimal stopping probability. It uses marginal
+        probabilities at each node: p_i ≈ P(S_{t_i} in exercise region), then selects the
+        time with the largest incremental increase dp_i = max(p_i - p_{i-1}, 0).
+
+        Returns
+        -------
+        (t_star, b_star, dp_star)
+            t_star: node time
+            b_star: boundary level at that node
+            dp_star: incremental probability mass at that node under this heuristic
+        """
+        t = np.asarray(t_grid, dtype=float).reshape((-1,))
+        bnd = np.asarray(boundary, dtype=float)
+        if bnd.ndim == 2:
+            b = bnd[:, int(strike_index)].reshape((-1,))
+        else:
+            b = bnd.reshape((-1,))
+        if t.shape[0] != b.shape[0]:
+            raise ValueError("t_grid and boundary must have the same length")
+
+        spot_eff = float(self.model.S0 if spot is None else spot)
+
+        # Compute marginal exercise probability at each node via COS digitals.
+        p = np.full_like(t, np.nan, dtype=float)
+        for i, ti in enumerate(t):
+            if not (ti > 0.0):
+                # At t=0, marginal distribution is degenerate at spot.
+                if np.isnan(b[i]):
+                    p[i] = 0.0
+                else:
+                    if bool(is_call):
+                        p[i] = float(spot_eff >= float(b[i]))
+                    else:
+                        p[i] = float(spot_eff <= float(b[i]))
+                continue
+
+            if np.isnan(b[i]) or float(b[i]) <= 0.0:
+                p[i] = 0.0 if not is_call else 0.0
+                continue
+
+            prob_put = float(self.digital_put_price(np.array([float(b[i])]), float(ti), spot=spot_eff)[0])
+            if bool(is_call):
+                p[i] = 1.0 - prob_put
+            else:
+                p[i] = prob_put
+
+        # Incremental probability mass (crude hazard proxy)
+        dp = np.zeros_like(p)
+        dp[0] = max(float(p[0]), 0.0)
+        for i in range(1, len(p)):
+            if np.isnan(p[i]) or np.isnan(p[i - 1]):
+                dp[i] = 0.0
+            else:
+                dp[i] = max(float(p[i] - p[i - 1]), 0.0)
+
+        if float(np.max(dp)) <= 0.0:
+            # No mass assigned; return earliest node with a finite boundary if present.
+            finite = np.where(np.isfinite(b))[0]
+            if finite.size == 0:
+                return (float(t[0]), float("nan"), 0.0)
+            i0 = int(finite[0])
+            return (float(t[i0]), float(b[i0]), 0.0)
+
+        i_star = int(np.argmax(dp))
+        return (float(t[i_star]), float(b[i_star]), float(dp[i_star]))
 
     # ----------------------------------------------------------------------- #
     # 2.5. Helper – variance over [0,T] for COS truncation
