@@ -38,14 +38,17 @@ If you just want to refresh everything:
 
 ### 3D Interactive IV Fit Plots ([figs/calibration_3d/](figs/calibration_3d/))
 
-All generated via `calibrate_cloud_lbfgsb.py` with `--iv-plot-3d-html-out` flag:
+All generated via `calibrate_cloud_lbfgsb.py` with `--iv-plot-3d-html-out` flag using two-phase European/American optimization and T^0.3 strike scaling:
 
 - [figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html](figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html) — Merton+VG generating → Merton+q calibration
 - [figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html) — Merton+VG generating → Kou+q calibration (cross-model)
+- [figs/calibration_3d/iv_fit_merton_vg_to_kou_vg_scaled.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_vg_scaled.html) — Merton+VG → Kou+VG composite (T^0.3 strike scaling)
 - [figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html](figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html) — CGMY+VG → Merton+q (infinite-activity model)
 - [figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html](figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html) — Kou+VG → CGMY+q (jump vs infinite-activity)
+- [figs/calibration_3d/iv_fit_merton_vg_to_kou_nig_q.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_nig_q.html) — **NEW**: Merton+VG → Kou+NIG (Normal Inverse Gaussian)
+- [figs/calibration_3d/iv_fit_cgmy_vg_to_merton_nig.html](figs/calibration_3d/iv_fit_cgmy_vg_to_merton_nig.html) — **NEW**: CGMY+VG → Merton+NIG (cross-model with NIG)
 
-**Features**: Red hollow circles (target prices), blue crosses (fitted prices), interactive rotation/zoom, hover data showing strike, maturity, moneyness, IV.
+**Features**: Red hollow circles (target IVs), blue crosses (fitted IVs), interactive rotation/zoom, smooth lines through target IV points (calls solid α=0.5, puts dotted α=1.0), hover data showing strike, maturity, moneyness, IV.
 
 ### Static PNG figures
 
@@ -176,13 +179,16 @@ These are real interactive Plotly plots (pan/zoom/rotate), not images:
 
 ### Calibration 3D scatter plots (NEW - Dec 2025)
 
-**Synthetic calibration with SLSQP optimizer**:
+**Synthetic calibration with SLSQP optimizer** (European warm-start + American refinement):
 - [figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html](figs/calibration_3d/iv_fit_merton_vg_to_merton_q.html) — Self-calibration benchmark
 - [figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_q.html) — Cross-model fit (Merton+VG → Kou)
+- [figs/calibration_3d/iv_fit_merton_vg_to_kou_vg_scaled.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_vg_scaled.html) — Composite model (Merton+VG → Kou+VG), T^0.3 strike scaling
 - [figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html](figs/calibration_3d/iv_fit_cgmy_vg_to_merton_q.html) — Infinite-activity model (CGMY+VG → Merton)
 - [figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html](figs/calibration_3d/iv_fit_kou_vg_to_cgmy_q.html) — Jump vs infinite-activity comparison
+- [figs/calibration_3d/iv_fit_merton_vg_to_kou_nig_q.html](figs/calibration_3d/iv_fit_merton_vg_to_kou_nig_q.html) — **NEW**: Kou + Normal Inverse Gaussian (NIG) composite
+- [figs/calibration_3d/iv_fit_cgmy_vg_to_merton_nig.html](figs/calibration_3d/iv_fit_cgmy_vg_to_merton_nig.html) — **NEW**: Cross-model with NIG (CGMY+VG → Merton+NIG)
 
-All generated via synthetic calibration pipeline with SLSQP optimizer, sensitivities via COS-American analytic gradients. **Linked sigma parameters** in combo models reduce dimension (merton_vg: 7 params, kou_vg: 8 params).
+All generated via synthetic calibration pipeline with SLSQP optimizer, sensitivities via COS-American analytic gradients. **Linked sigma parameters** in combo models reduce dimension (merton_vg: 7 params, kou_vg: 8 params, kou_nig: 10 params). **Features**: Smooth IV curves (calls solid α=0.5, puts dotted α=1.0), T^0.3 strike scaling (100 quotes per calibration), red circles (target IV), blue crosses (fitted IV).
 
 ### Event IV surfaces (3D interactive)
 
