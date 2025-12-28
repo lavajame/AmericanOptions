@@ -51,120 +51,120 @@ All generated via `calibrate_cloud_lbfgsb.py` with `--iv-plot-3d-html-out` flag:
 
 ### COS / dividends / American diagnostics (from [plot_diagnostics.py](plot_diagnostics.py))
 
-- COS vs Black–Scholes sanity check: [figs/cos_vs_bs_gbm.png](figs/cos_vs_bs_gbm.png)
+- COS vs Black–Scholes sanity check: [figs/levy_models/cos_vs_bs_gbm.png](figs/levy_models/cos_vs_bs_gbm.png)
 
-  ![COS vs BS (GBM)](figs/cos_vs_bs_gbm.png)
+  ![COS vs BS (GBM)](figs/levy_models/cos_vs_bs_gbm.png)
 
   What it shows: European call prices under GBM with no dividends, COS vs the analytic Black–Scholes price (plus the residual).
 
-- American rollback: hard max vs softmax: [figs/american_hard_vs_soft.png](figs/american_hard_vs_soft.png)
+- American rollback: hard max vs softmax: [figs/american_pricing/american_hard_vs_soft.png](figs/american_pricing/american_hard_vs_soft.png)
 
-  ![American hard vs soft rollback](figs/american_hard_vs_soft.png)
+  ![American hard vs soft rollback](figs/american_pricing/american_hard_vs_soft.png)
 
   What it shows: the continuation/intrinsic comparison under two rollback variants (hard max vs softmax smoothing).
 
-- Lévy models vs equivalent GBM proxy: [figs/levy_vs_equiv_gbm.png](figs/levy_vs_equiv_gbm.png)
+- Lévy models vs equivalent GBM proxy: [figs/levy_models/levy_vs_equiv_gbm.png](figs/levy_models/levy_vs_equiv_gbm.png)
 
-  ![Levy vs equivalent GBM](figs/levy_vs_equiv_gbm.png)
+  ![Levy vs equivalent GBM](figs/levy_models/levy_vs_equiv_gbm.png)
 
   What it shows: European prices under jump/Lévy models (Merton/Kou/VG) compared against a variance-matched GBM proxy.
 
-- Dividend continuation (European vs American continuation at $t=0$): [figs/american_dividend_continuation.png](figs/american_dividend_continuation.png)
+- Dividend continuation (European vs American continuation at $t=0$): [figs/american_pricing/american_dividend_continuation.png](figs/american_pricing/american_dividend_continuation.png)
 
-  ![American dividend continuation](figs/american_dividend_continuation.png)
+  ![American dividend continuation](figs/american_pricing/american_dividend_continuation.png)
 
   What it shows: how the dividend-aware continuation behaves at time 0, comparing European vs American continuation components.
 
-- Through-time comparison (COS European/American vs FDM): [figs/american_through_time.png](figs/american_through_time.png)
+- Through-time comparison (COS European/American vs FDM): [figs/american_pricing/american_through_time.png](figs/american_pricing/american_through_time.png)
 
-  ![American through time](figs/american_through_time.png)
+  ![American through time](figs/american_pricing/american_through_time.png)
 
   What it shows: a through-time snapshot of values/continuation for COS (European + American rollback) alongside an FDM reference.
 
 - Continuation value through time (with CSV):
-  - Plot: [figs/continuation_through_time.png](figs/continuation_through_time.png)
-  - Data: [figs/continuation_through_time.csv](figs/continuation_through_time.csv)
+  - Plot: [figs/american_pricing/continuation_through_time.png](figs/american_pricing/continuation_through_time.png)
+  - Data: [figs/american_pricing/continuation_through_time.csv](figs/american_pricing/continuation_through_time.csv)
 
-  ![Continuation through time](figs/continuation_through_time.png)
+  ![Continuation through time](figs/american_pricing/continuation_through_time.png)
 
   What it shows: a time series view of the continuation value (and related quantities) that can be used for debugging rollback behavior.
 
 - Forward / parity through time (with CSV):
-  - Plot: [figs/forward_parity_through_time.png](figs/forward_parity_through_time.png)
-  - Data: [figs/forward_parity_through_time.csv](figs/forward_parity_through_time.csv)
+  - Plot: [figs/american_pricing/forward_parity_through_time.png](figs/american_pricing/forward_parity_through_time.png)
+  - Data: [figs/american_pricing/forward_parity_through_time.csv](figs/american_pricing/forward_parity_through_time.csv)
 
-  ![Forward parity through time](figs/forward_parity_through_time.png)
+  ![Forward parity through time](figs/american_pricing/forward_parity_through_time.png)
 
   What it shows: forward/parity consistency checks over time in the presence of discrete dividends.
 
 - Dividend uncertainty: CGMY COS vs Monte Carlo (with CSV):
-  - Plot: [figs/cgmy_mc_vs_cos_div_uncertainty.png](figs/cgmy_mc_vs_cos_div_uncertainty.png)
-  - Data: [figs/cgmy_mc_vs_cos_div_uncertainty.csv](figs/cgmy_mc_vs_cos_div_uncertainty.csv)
+  - Plot: [figs/model_comparison/cgmy_mc_vs_cos_div_uncertainty.png](figs/model_comparison/cgmy_mc_vs_cos_div_uncertainty.png)
+  - Data: [figs/model_comparison/cgmy_mc_vs_cos_div_uncertainty.csv](figs/model_comparison/cgmy_mc_vs_cos_div_uncertainty.csv)
 
-  ![CGMY MC vs COS under dividend uncertainty](figs/cgmy_mc_vs_cos_div_uncertainty.png)
+  ![CGMY MC vs COS under dividend uncertainty](figs/model_comparison/cgmy_mc_vs_cos_div_uncertainty.png)
 
   What it shows: compares COS pricing against a CGMY Monte Carlo cross-check under uncertain cash dividends (modeled via inverse Gaussian). Uses equity-like CGMY parameterization (G=2.5, M=8.0, Y=0.7) with negative skew. Dividend scenarios: $2.0 mean with stdev sweep ($0.00, $0.75, $1.50, $3.00). Validates that COS and MC agree under the IG dividend factor model across all uncertainty levels.
 
 - Richardson extrapolation for discrete dividends (with CSV):
-  - Plot: [figs/richardson_vs_manyM_discrete_divs.png](figs/richardson_vs_manyM_discrete_divs.png)
-  - Data: [figs/richardson_vs_manyM_discrete_divs.csv](figs/richardson_vs_manyM_discrete_divs.csv)
+  - Plot: [figs/levy_models/richardson_vs_manyM_discrete_divs.png](figs/levy_models/richardson_vs_manyM_discrete_divs.png)
+  - Data: [figs/levy_models/richardson_vs_manyM_discrete_divs.csv](figs/levy_models/richardson_vs_manyM_discrete_divs.csv)
 
-  ![Richardson extrapolation discrete dividends](figs/richardson_vs_manyM_discrete_divs.png)
+  ![Richardson extrapolation discrete dividends](figs/levy_models/richardson_vs_manyM_discrete_divs.png)
 
   What it shows: compares Richardson extrapolation convergence against brute-force refinement (many timesteps) for American options with discrete dividends under GBM.
 
 ### Dividend call early-ex identification heuristic (from [tools/plot_call_boundary_heuristics_clean.py](tools/plot_call_boundary_heuristics_clean.py))
 
 - Merton 2x2 boundary + “most likely” node markers (high DPI):
-  - Plot: [figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png](figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png)
-  - Data (B_call BS probability-through-time): [figs/b_call_prob_through_time.csv](figs/b_call_prob_through_time.csv)
+  - Plot: [figs/boundaries/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png](figs/boundaries/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png)
+  - Data (B_call BS probability-through-time): [figs/boundaries/b_call_prob_through_time.csv](figs/boundaries/b_call_prob_through_time.csv)
 
-  ![Dividend call early-ex identification (Merton)](figs/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png)
+  ![Dividend call early-ex identification (Merton)](figs/boundaries/call_boundary_heuristics_merton_2x2_clean_bsjump_hi.png)
 
   What it shows: rollback-implied American exercise boundaries for CALLs (top row) and PUTs (bottom row) under two scenarios: (A) continuous yield and (B) discrete cash dividends. The default “most likely” marker uses a forward-anchored BS/lognormal proxy probability-through-time. Use `--with-marginal` to additionally compute the COS-digital marginal-probability scan (slower).
 
 ### COS vs FDM time/accuracy tradeoff (from [tools/profile_cos_vs_fdm_time_complexity.py](tools/profile_cos_vs_fdm_time_complexity.py))
 
-- COS vs FDM scalability: [figs/cos_vs_fdm_time_complexity.png](figs/cos_vs_fdm_time_complexity.png)
+- COS vs FDM scalability: [figs/levy_models/cos_vs_fdm_time_complexity.png](figs/levy_models/cos_vs_fdm_time_complexity.png)
 
-  ![COS vs FDM time complexity](figs/cos_vs_fdm_time_complexity.png)
+  ![COS vs FDM time complexity](figs/levy_models/cos_vs_fdm_time_complexity.png)
 
   What it shows: for both European and American cases, compares runtime vs error for COS (sweeping $N$) and FDM (sweeping grid sizes).
 
 ### Lévy model skew persistence and calibration (from [tools/analyze_skew_persistence.py](tools/analyze_skew_persistence.py))
 
 - Skew and curvature persistence after hybrid calibration:
-  - Plot: [figs/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png](figs/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png)
-  - Data: [figs/skew_persistence_by_model_calib_cumulants_from_avgshape_T025_hybrid.csv](figs/skew_persistence_by_model_calib_cumulants_from_avgshape_T025_hybrid.csv)
+  - Plot: [figs/model_comparison/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png](figs/model_comparison/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png)
+  - Data: [figs/model_comparison/skew_persistence_by_model_calib_cumulants_from_avgshape_T025_hybrid.csv](figs/model_comparison/skew_persistence_by_model_calib_cumulants_from_avgshape_T025_hybrid.csv)
 
-  ![Skew persistence hybrid calibration](figs/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png)
+  ![Skew persistence hybrid calibration](figs/model_comparison/skew_persistence_skew_curv_calib_cumulants_from_avgshape_T025_hybrid.png)
 
   What it shows: after matching VG/Merton/Kou/CGMY models at T=0.25 using a hybrid objective (cumulants + IV-slice penalty), compares how ATM skew and curvature evolve across maturities (0.05Y to 1Y). VG shows the sharpest/most extreme smile decay; Kou and Merton are similar and moderate; CGMY sits in between but with the most persistent smile across maturities, especially on the call wing.
 
 - Calibrated IV slices (z-normalized moneyness):
-  - Plot: [figs/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png](figs/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png)
+  - Plot: [figs/calibration_surfaces/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png](figs/calibration_surfaces/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png)
 
-  ![IV slices z-normalized](figs/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png)
+  ![IV slices z-normalized](figs/calibration_surfaces/iv_slices_calib_cumulants_from_avgshape_T025_hybrid_z_T005_T025_T100.png)
 
   What it shows: implied vol slices at T=0.05, T=0.25, T=1.0 for the hybrid-calibrated models, plotted vs normalized moneyness z = ln(K/F)/(σ√T). Shows how each model's smile shape evolves with maturity after ensuring fair starting conditions at T=0.25.
 
 - Calibration parameter outputs:
-  - Hybrid calibration: [figs/calib_params_cumulants_from_avgshape_T025_hybrid.json](figs/calib_params_cumulants_from_avgshape_T025_hybrid.json)
-  - Other variants available in `figs/calib_params_*.json`
+  - Hybrid calibration: [figs/model_comparison/calib_params_cumulants_from_avgshape_T025_hybrid.json](figs/model_comparison/calib_params_cumulants_from_avgshape_T025_hybrid.json)
+  - Other variants available in `figs/model_comparison/calib_params_*.json`
 
 ### Event implied-vol surfaces (static)
 
-- Event IV surfaces (GBM+event vs VG+event): [figs/event_iv_surfaces_gbm_vs_vg.png](figs/event_iv_surfaces_gbm_vs_vg.png)
+- Event IV surfaces (GBM+event vs VG+event): [figs/model_comparison/event_iv_surfaces_gbm_vs_vg.png](figs/model_comparison/event_iv_surfaces_gbm_vs_vg.png)
 
-  ![Event IV surfaces GBM vs VG](figs/event_iv_surfaces_gbm_vs_vg.png)
+  ![Event IV surfaces GBM vs VG](figs/model_comparison/event_iv_surfaces_gbm_vs_vg.png)
 
-- Event IV surfaces (GBM+event vs Merton+event): [figs/event_iv_surfaces_gbm_vs_merton.png](figs/event_iv_surfaces_gbm_vs_merton.png)
+- Event IV surfaces (GBM+event vs Merton+event): [figs/model_comparison/event_iv_surfaces_gbm_vs_merton.png](figs/model_comparison/event_iv_surfaces_gbm_vs_merton.png)
 
-  ![Event IV surfaces GBM vs Merton](figs/event_iv_surfaces_gbm_vs_merton.png)
+  ![Event IV surfaces GBM vs Merton](figs/model_comparison/event_iv_surfaces_gbm_vs_merton.png)
 
-- Event IV surfaces (GBM+event vs Kou+VG composite+event): [figs/event_iv_surfaces_gbm_vs_kouvg.png](figs/event_iv_surfaces_gbm_vs_kouvg.png)
+- Event IV surfaces (GBM+event vs Kou+VG composite+event): [figs/model_comparison/event_iv_surfaces_gbm_vs_kouvg.png](figs/model_comparison/event_iv_surfaces_gbm_vs_kouvg.png)
 
-  ![Event IV surfaces GBM vs Kou+VG](figs/event_iv_surfaces_gbm_vs_kouvg.png)
+  ![Event IV surfaces GBM vs Kou+VG](figs/model_comparison/event_iv_surfaces_gbm_vs_kouvg.png)
 
   Generated by: [tools/plot_event_iv_surfaces.py](tools/plot_event_iv_surfaces.py)
   
