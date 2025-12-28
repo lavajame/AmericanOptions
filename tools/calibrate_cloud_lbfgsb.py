@@ -348,8 +348,21 @@ def main() -> int:
         pr = COSPricer(model, N=512, L=10.0)
         
         quotes = []
-        for T in np.linspace(0.0416, 0.75, 10):
-            for K in np.linspace(85.0, 115.0, 10):
+        # Original 5 expiries with T^0.3 scaling for strikes (10 per expiry)
+        Ts_orig = [0.0416, 0.0833, 0.25, 0.5, 0.75]
+        sigma_est = 0.15
+        
+        for T in Ts_orig:
+            # Scale strike range by T^0.3: wider log-moneyness at short maturities
+            time_scale = T ** 0.3
+            # Base log-moneyness range (normalized): ±0.25 scaled by T^0.3
+            log_mono_range = 0.25 * time_scale
+            # Convert to strike range around spot
+            K_min = args.S0 * np.exp(-log_mono_range)
+            K_max = args.S0 * np.exp(log_mono_range)
+            
+            # 10 strikes per expiry
+            for K in np.linspace(K_min, K_max, 10):
                 for is_call in [False, True]:
                     px = pr.american_price(np.array([K]), T, steps=40, is_call=is_call, use_softmax=True, beta=100.0)[0]
                     quotes.append(OptionQuote(T=float(T), K=float(K), is_call=is_call, bid=float(px) * 0.99, ask=float(px) * 1.01))
@@ -549,22 +562,53 @@ def main() -> int:
                 print("Plotly not installed, skipping 3D plot")
             else:
                 fig = go.Figure()
+                
+                # Add scatter points for both target and fit
                 fig.add_trace(go.Scatter3d(
-                    x=xs, y=Ts, z=ivs_mkt, mode="markers", name="Target",
+                    x=xs, y=Ts, z=ivs_mkt, mode="markers", name="Target (Points)",
                     customdata=np.column_stack((Ks, types)),
                     hovertemplate="<b>Target</b><br>T=%{y:.3f}<br>K=%{customdata[0]:.1f}<br>Type=%{customdata[1]}<br>x=%{x:.3f}<br>IV=%{z:.4f}<extra></extra>",
                     marker=dict(size=10, color="red", symbol="circle-open", opacity=0.4,
                                line=dict(color="red", width=1))
                 ))
                 fig.add_trace(go.Scatter3d(
-                    x=xs, y=Ts, z=ivs_fit, mode="markers", name="Fit",
+                    x=xs, y=Ts, z=ivs_fit, mode="markers", name="Fit (Points)",
                     customdata=np.column_stack((Ks, types)),
                     hovertemplate="<b>Fit</b><br>T=%{y:.3f}<br>K=%{customdata[0]:.1f}<br>Type=%{customdata[1]}<br>x=%{x:.3f}<br>IV=%{z:.4f}<extra></extra>",
                     marker=dict(size=10, color="blue", symbol="cross", opacity=0.4, line=dict(width=0.5))
                 ))
+                
+                # Add smooth lines through target points per expiry
+                for T_val in sorted(set(Ts)):
+                    for is_call_flag in [True, False]:
+                        mask = np.array([(T == T_val) and (typ == ("call" if is_call_flag else "put")) 
+                                        for T, typ in zip(Ts, types)])
+                        if not np.any(mask):
+                            continue
+                        
+                        x_line = np.array([xs[i] for i in range(len(xs)) if mask[i]])
+                        iv_line = np.array([ivs_mkt[i] for i in range(len(ivs_mkt)) if mask[i]])
+                        
+                        if len(x_line) > 1:
+                            # Sort by x for smooth line
+                            sort_idx = np.argsort(x_line)
+                            x_sorted = x_line[sort_idx]
+                            iv_sorted = iv_line[sort_idx]
+                            T_line = np.full_like(x_sorted, T_val)
+                            
+                            opt_type = "Call" if is_call_flag else "Put"
+                            fig.add_trace(go.Scatter3d(
+                                x=x_sorted, y=T_line, z=iv_sorted, 
+                                mode="lines",
+                                name=f"Target {opt_type} (T={T_val:.4f})",
+                                line=dict(color="red", width=2, 
+                                         dash="solid" if is_call_flag else "dot"),
+                                opacity=0.5 if is_call_flag else 1.0
+                            ))
+                
                 fig.update_layout(
                     scene=dict(xaxis_title="log-moneyness", yaxis_title="T", zaxis_title="IV"),
-                    title=f"IV Fit ({tfm.case})",
+                    title=f"IV Fit ({tfm.case}) - Target with smooth lines",
                 )
                 os.makedirs(os.path.dirname(args.iv_plot_3d_html_out) or ".", exist_ok=True)
                 fig.write_html(args.iv_plot_3d_html_out, include_plotlyjs="cdn")

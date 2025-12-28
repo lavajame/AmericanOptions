@@ -1,0 +1,90 @@
+{
+  "timestamp": "20251228_172558",
+  "true_model": {
+    "type": "merton_vg",
+    "q": 0.05,
+    "components": [
+      {
+        "type": "merton",
+        "params": {
+          "sigma": 0.15,
+          "lam": 0.5,
+          "muJ": -0.2,
+          "sigmaJ": 0.1
+        }
+      },
+      {
+        "type": "vg",
+        "params": {
+          "theta": -0.2,
+          "sigma": 0.15,
+          "nu": 0.05
+        }
+      }
+    ]
+  },
+  "dividend_schedule": [
+    [
+      0.25,
+      1.0
+    ],
+    [
+      0.5,
+      1.0
+    ],
+    [
+      0.75,
+      2.0
+    ]
+  ],
+  "market": {
+    "S0": 100.0,
+    "r": 0.02
+  },
+  "european_params": {
+    "N": 256,
+    "L": 10.0,
+    "max_iter": 50
+  },
+  "american_params": {
+    "N": 128,
+    "L": 8.0,
+    "steps": 50,
+    "beta": 100.0,
+    "max_iter": 50
+  },
+  "test_models": [
+    "merton",
+    "vg",
+    "kou",
+    "merton_vg",
+    "kou_nig"
+  ],
+  "results": {
+    "merton": {
+      "status": "success",
+      "dimension": 5,
+      "stdout_length": 2055
+    },
+    "vg": {
+      "status": "failed",
+      "dimension": 4,
+      "error": "(\n        f\"Invalid composite params: psi(-i) is not real (psi(-i)={psi_minus_i})\"\n    )\nValueError: Invalid composite params: psi(-i) is not real (psi(-i)=(-0.11323530570600633-0.6283185307179587j))\n"
+    },
+    "kou": {
+      "status": "success",
+      "dimension": 6,
+      "stdout_length": 1881
+    },
+    "merton_vg": {
+      "status": "success",
+      "dimension": 7,
+      "stdout_length": 2088
+    },
+    "kou_nig": {
+      "status": "success",
+      "dimension": 10,
+      "stdout_length": 2617
+    }
+  }
+}
