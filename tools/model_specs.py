@@ -203,12 +203,35 @@ CGMY_SPEC = ModelSpec(
     ]
 )
 
+NIG_SPEC = ModelSpec(
+    model_type="nig",
+    params=[
+        ParamSpec("alpha", "log", np.log(15.0), np.log(5.0), np.log(50.0)),
+        ParamSpec("beta", "linear", -4.0, -10.0, 10.0),
+        ParamSpec("delta", "log", np.log(0.5), np.log(0.1), np.log(5.0)),
+        ParamSpec("mu", "linear", 0.01, -0.5, 0.5),
+    ]
+)
+
+# NIG with linked sigma (for use in combinations like Kou+NIG)
+# Note: NIG doesn't have sigma, but this would be for future extensions
+NIG_LINKED_KOU_SPEC = ModelSpec(
+    model_type="nig",
+    params=[
+        ParamSpec("alpha", "log", np.log(15.0), np.log(5.0), np.log(50.0)),
+        ParamSpec("beta", "linear", -4.0, -10.0, 10.0),
+        ParamSpec("delta", "log", np.log(0.5), np.log(0.1), np.log(5.0)),
+        ParamSpec("mu", "linear", 0.01, -0.5, 0.5),
+    ]
+)
+
 # Registry of all models
 MODEL_REGISTRY = {
     "merton": MERTON_SPEC,
     "vg": VG_SPEC,
     "kou": KOU_SPEC,
     "cgmy": CGMY_SPEC,
+    "nig": NIG_SPEC,
 }
 
 
@@ -228,6 +251,8 @@ class CompositeModelSpec:
             self.components = [MODEL_REGISTRY["merton"], VG_LINKED_SPEC]
         elif set(component_names) == {"kou", "vg"}:
             self.components = [MODEL_REGISTRY["kou"], VG_LINKED_KOU_SPEC]
+        elif set(component_names) == {"kou", "nig"}:
+            self.components = [MODEL_REGISTRY["kou"], NIG_LINKED_KOU_SPEC]
         else:
             self.components = [MODEL_REGISTRY[name] for name in component_names]
     
@@ -312,6 +337,7 @@ GENERATION_MODELS = {
     "kou": {"components": [{"type": "kou", "params": {"sigma": 0.16, "lam": 0.9, "p": 0.35, "eta1": 12.0, "eta2": 6.0}}]},
     "vg": {"components": [{"type": "vg", "params": {"theta": -0.2, "sigma": 0.12, "nu": 0.05}}]},
     "cgmy": {"components": [{"type": "cgmy", "params": {"C": 0.5, "G": 10.0, "M": 10.0, "Y": 0.5}}]},
+    "nig": {"components": [{"type": "nig", "params": {"alpha": 15.0, "beta": -4.0, "delta": 0.55, "mu": 0.02}}]},
     "kou_vg": {"components": [
         {"type": "kou", "params": {"sigma": 0.16, "lam": 0.9, "p": 0.35, "eta1": 12.0, "eta2": 6.0}},
         {"type": "vg", "params": {"theta": -0.2, "sigma": 0.12, "nu": 0.05}}
@@ -323,5 +349,9 @@ GENERATION_MODELS = {
     "cgmy_vg": {"components": [
         {"type": "cgmy", "params": {"C": 0.5, "G": 10.0, "M": 10.0, "Y": 0.5}},
         {"type": "vg", "params": {"theta": -0.2, "sigma": 0.12, "nu": 0.05}}
+    ]},
+    "kou_nig": {"components": [
+        {"type": "kou", "params": {"sigma": 0.16, "lam": 0.9, "p": 0.35, "eta1": 12.0, "eta2": 6.0}},
+        {"type": "nig", "params": {"alpha": 15.0, "beta": -4.0, "delta": 0.55, "mu": 0.02}}
     ]},
 }

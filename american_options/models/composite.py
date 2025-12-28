@@ -449,6 +449,38 @@ class CompositeLevyCHF(CharacteristicFunction):
                         psi_p_mi = complex(self._psi_unit_cgmy(-1j, C=float(p_p.get("C", C)), G=float(p_p.get("G", G)), M=float(p_p.get("M", M)), Y=float(p_p.get("Y", Y))))
                         psi_m_mi = complex(self._psi_unit_cgmy(-1j, C=float(p_m.get("C", C)), G=float(p_m.get("G", G)), M=float(p_m.get("M", M)), Y=float(p_m.get("Y", Y))))
                         dpsi_mi[name] += (psi_p_mi - psi_m_mi) / (2.0 * h)
+            elif ctype == "nig":
+                # NIG: use FD for all parameters (hybrid approach)
+                alpha = float(p.get("alpha", 15.0))
+                beta = float(p.get("beta", -4.0))
+                delta = float(p.get("delta", 0.5))
+                mu = float(p.get("mu", 0.0))
+                psi_u_comp = self._psi_unit_nig(u, alpha=alpha, beta=beta, delta=delta, mu=mu)
+                psi_u += psi_u_comp
+                psi_mi_comp = complex(self._psi_unit_nig(-1j, alpha=alpha, beta=beta, delta=delta, mu=mu))
+                psi_mi += psi_mi_comp
+
+                for name in params_eff:
+                    comp_idx, key = name_map[name]
+                    if comp_idx != idx:
+                        continue
+                    # Use FD for all NIG parameters
+                    base_val = float(p.get(key))
+                    h = float(rel_step) * max(1.0, abs(base_val))
+                    if h == 0.0:
+                        h = float(rel_step)
+
+                    p_p = dict(p)
+                    p_m = dict(p)
+                    p_p[key] = base_val + h
+                    p_m[key] = base_val - h
+                    psi_p = self._psi_unit_nig(u, alpha=float(p_p.get("alpha", alpha)), beta=float(p_p.get("beta", beta)), delta=float(p_p.get("delta", delta)), mu=float(p_p.get("mu", mu)))
+                    psi_m = self._psi_unit_nig(u, alpha=float(p_m.get("alpha", alpha)), beta=float(p_m.get("beta", beta)), delta=float(p_m.get("delta", delta)), mu=float(p_m.get("mu", mu)))
+                    dpsi_u[name] += (psi_p - psi_m) / (2.0 * h)
+
+                    psi_p_mi = complex(self._psi_unit_nig(-1j, alpha=float(p_p.get("alpha", alpha)), beta=float(p_p.get("beta", beta)), delta=float(p_p.get("delta", delta)), mu=float(p_p.get("mu", mu))))
+                    psi_m_mi = complex(self._psi_unit_nig(-1j, alpha=float(p_m.get("alpha", alpha)), beta=float(p_m.get("beta", beta)), delta=float(p_m.get("delta", delta)), mu=float(p_m.get("mu", mu))))
+                    dpsi_mi[name] += (psi_p_mi - psi_m_mi) / (2.0 * h)
             else:
                 raise RuntimeError(f"Unhandled component type: {ctype}")
 
@@ -533,6 +565,16 @@ class CompositeLevyCHF(CharacteristicFunction):
                 k1 += C * T * float(sp_gamma(1.0 - Y)) * (stable_pow(M, Y - 1.0) - stable_pow(G, Y - 1.0))
                 k2 += C * T * float(sp_gamma(2.0 - Y)) * (stable_pow(M, Y - 2.0) + stable_pow(G, Y - 2.0))
                 k4 += C * T * float(sp_gamma(4.0 - Y)) * (stable_pow(M, Y - 4.0) + stable_pow(G, Y - 4.0))
+            elif ctype == "nig":
+                alpha = float(p.get("alpha", 15.0))
+                beta = float(p.get("beta", -4.0))
+                delta = float(p.get("delta", 0.5))
+                mu = float(p.get("mu", 0.0))
+                gamma = float(np.sqrt(alpha ** 2 - beta ** 2))
+                # NIG cumulants:
+                k1 += mu * T + delta * T * (beta / gamma)
+                k2 += delta * T * (alpha ** 2) / (gamma ** 3)
+                k4 += 3.0 * delta * T * (alpha ** 2) * ((alpha ** 2) + 4.0 * (beta ** 2)) / (gamma ** 7)
             elif ctype == "gbm":
                 sigma = float(p.get("sigma", p.get("vol", 0.0)))
                 # X is Brownian with zero drift.

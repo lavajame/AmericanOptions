@@ -80,6 +80,7 @@ TEST_MODELS = [
     "vg",
     "kou",
     "merton_vg",
+    "kou_nig",
 ]
 
 # Run settings
