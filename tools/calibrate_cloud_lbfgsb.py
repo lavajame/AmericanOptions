@@ -348,11 +348,11 @@ def main() -> int:
         pr = COSPricer(model, N=512, L=10.0)
         
         quotes = []
-        for T in [0.0416, 0.0833, 0.25,0.5, 0.75]:
-            for K in [90.0, 95.0, 100.0, 105.0, 110.0]:
+        for T in np.linspace(0.0416, 0.75, 10):
+            for K in np.linspace(85.0, 115.0, 10):
                 for is_call in [False, True]:
                     px = pr.american_price(np.array([K]), T, steps=40, is_call=is_call, use_softmax=True, beta=100.0)[0]
-                    quotes.append(OptionQuote(T=T, K=K, is_call=is_call, bid=float(px) * 0.99, ask=float(px) * 1.01))
+                    quotes.append(OptionQuote(T=float(T), K=float(K), is_call=is_call, bid=float(px) * 0.99, ask=float(px) * 1.01))
     else:
         if args.quotes is None:
             raise ValueError("Provide --quotes or use --synthetic")
